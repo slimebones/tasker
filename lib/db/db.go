@@ -26,8 +26,21 @@ const VERSION_START_QUERY = `
 
 const VERSION_GET_QUERY = `SELECT version FROM db_version LIMIT 1`
 
+const ()
+
+var driver string
+var addr string
+var maxOpen int
+var maxIdle int
+
 const (
-	VersionFetchingError = 2
+	Ok = iota
+	Error
+	Empty_Driver_Error
+	Version_Fetch_Error
+	Empty_Addr_Error
+	Connection_Error
+	Dir_Read_Error
 )
 
 func getVersion() (int, int) {
@@ -35,7 +48,7 @@ func getVersion() (int, int) {
 	tx := Begin()
 	e := tx.Get(&version, VERSION_GET_QUERY)
 	if e != nil {
-		return 0, VersionFetchingError
+		return 0, Version_Fetch_Error
 	}
 	if version < 1 {
 		bone.Log_Error("In db, version cannot be `%d`.", version)
@@ -51,8 +64,7 @@ func Begin() *Tx {
 func getSortedMigrations() ([]string, int) {
 	files, er := os.ReadDir(migrationsDir)
 	if er != nil {
-		bone.Log_Error("Cannot read migrations dir: " + migrationsDir)
-		return nil, 1
+		return nil, Dir_Read_Error
 	}
 	filenames := []string{}
 	for _, file := range files {
@@ -100,7 +112,7 @@ func getMigrationsFrom(version int, migrations []string) []string {
 // v1 for empty database, otherwise current database version + 1.
 func getNextVersion() int {
 	currentVersion, e := getVersion()
-	if e == VersionFetchingError {
+	if e == Version_Fetch_Error {
 		currentVersion = -1
 	} else if e > 0 {
 		return e
@@ -126,7 +138,7 @@ var migrationsDir string
 
 // Note: migration down is not yet supported.
 func sync() int {
-	migrationsDir = bone.Cwd("/db/migrations")
+	migrationsDir = bone.Cwd("migrations")
 	nextVersion := getNextVersion()
 
 	migrations, e := getSortedMigrations()
@@ -175,11 +187,6 @@ func applyMigrations(migrations []string) int {
 	return 0
 }
 
-var driver string
-var addr string
-var maxOpen int
-var maxIdle int
-
 // Once we connect the database, we *always* sync it to the latest version
 // possible. Latest version is defined by the `db/migrations` directory.
 //
@@ -192,12 +199,12 @@ func Init() int {
 	maxIdle = bone.Config.GetInt("db", "max_idle", 2)
 
 	if driver == "" {
-		bone.Log_Error("Empty `db.driver`.")
-		return 1
+		bone.Log_Error("In db, empty driver")
+		return Empty_Driver_Error
 	}
 	if addr == "" {
-		bone.Log_Error("Empty `db.addr`.")
-		return 1
+		bone.Log_Error("In db, empty addr")
+		return Empty_Addr_Error
 	}
 
 	_db, er := sqlx.Connect(
@@ -205,7 +212,7 @@ func Init() int {
 		addr,
 	)
 	if er != nil {
-		return 1
+		return Connection_Error
 	}
 
 	connection = _db
@@ -220,6 +227,7 @@ func Init() int {
 
 	e := sync()
 	if e > 0 {
+		bone.Log_Error("In db, sync issue")
 		return e
 	}
 

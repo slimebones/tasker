@@ -2,15 +2,19 @@ package bone
 
 import "time"
 
-func TimeSec() int64 {
+func Time_Sec() int64 {
 	return time.Now().Unix()
 }
 
 // Formats timestamp to a date.
-func DateSec(sec int64, format string) string {
+func Date_Sec(sec int64, format string) string {
 	return time.Unix(sec, 0).Format(format)
 }
 
-func TimeSleep(duration int64) {
-	time.Sleep(time.Duration(duration * 1000))
+func Sleep_Sec(duration_sec int64) {
+	time.Sleep(time.Duration(duration_sec) * time.Second)
+}
+
+func Sleep_Ms(duration_ms int64) {
+	time.Sleep(time.Duration(duration_ms) * time.Millisecond)
 }
