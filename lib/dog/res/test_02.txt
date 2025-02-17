@@ -1,0 +1,4 @@
+One donut please.
+@ifdef FRIENDLY
+Have a nice day!
+@
