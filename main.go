@@ -60,7 +60,7 @@ const (
 	TODAY_PRIORITY
 )
 
-var current_project_id = 0
+var current_project_id = 1
 
 var date_regex = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 var time_regex = regexp.MustCompile(`\s\d{2}:\d{2}`)
@@ -95,24 +95,23 @@ func add_task(ctx *Command_Context) int {
 
 		if title == "p1" {
 			priority = SOMETIME_LATER_PRIORITY
-			continue
 		}
 		if title == "p2" {
 			priority = THIS_WEEK_PRIORITY
-			continue
 		}
 		if title == "p3" {
 			priority = TODAY_PRIORITY
-			continue
 		}
-		if priority == 0 {
+		if priority != 0 {
 			if schedule != nil {
 				bone.Log_Error("Priority and schedule are set simultaneously")
 				return Input_Error
 			}
+			// Clearly set, exclude from final title
+			continue
+		} else {
 			// We default to sometime later priority.
 			priority = 1
-			continue
 		}
 
 		title += a + " "
@@ -148,9 +147,26 @@ func add_task(ctx *Command_Context) int {
 	return Ok
 }
 
-func show_tasks(ctx *Command_Context) int {
-	// tx := db.Begin()
+type Task struct {
+	Id         int     `db:"id"`
+	Title      string  `db:"title"`
+	Priority   int     `db:"completion_priority"`
+	Schedule   *string `db:"schedule"`
+	Project_Id int     `db:"project_id"`
+}
 
+func show_tasks(ctx *Command_Context) int {
+	tx := db.Begin()
+	defer tx.Rollback()
+	tasks := []Task{}
+	er := tx.Select(&tasks, "SELECT * FROM task")
+	if er != nil {
+		print(er.Error(), "\n")
+		return Error
+	}
+	for _, t := range tasks {
+		print(t.Title, " || ", t.Schedule, " || ", t.Priority, " || ", t.Project_Id, "\n")
+	}
 	return Ok
 }
 
