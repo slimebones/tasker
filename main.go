@@ -39,31 +39,60 @@ func main() {
 	}
 }
 
-type handler func(input string) error
+type handler func(ctx *Command_Context) int
 
-func add_task(input string) error {
-	return nil
+type Command_Context struct {
+	Raw_input    string
+	Command_name string
+	Args         []string
 }
 
-func quit(_ string) error {
+func add_task(ctx *Command_Context) int {
+	return 0
+}
+
+func show_tasks(ctx *Command_Context) int {
+	return 0
+}
+
+func quit(_ *Command_Context) int {
 	os.Exit(0)
-	return nil
+	return 0
 }
 
 var COMMANDS = map[string]handler{
 	"q": quit,
+	"s": show_tasks,
 	"a": add_task,
 }
 
 func process_input(input string) {
-	cmd, ok := COMMANDS[input]
+	// Quoted strings are not yet supported - they will be separated as everything else.
+	input_parts := strings.Fields(input)
+	if len(input_parts) == 0 {
+		return
+	}
+
+	command_name := input_parts[0]
+
+	cmd, ok := COMMANDS[command_name]
 	if !ok {
 		bone.Log_Error("Unrecognized command: " + input)
 		return
 	}
 
-	e := cmd(input)
-	if e != nil {
-		bone.Log_Error(e.Error())
+	args := []string{}
+	if len(input_parts) > 1 {
+		args = input_parts[1:]
+	}
+	ctx := Command_Context{
+		Raw_input:    input,
+		Command_name: command_name,
+		Args:         args,
+	}
+
+	e := cmd(&ctx)
+	if e > 0 {
+		bone.Log_Error("While calling a command `%s`, an error occured: %s", bone.Tr_Code(e))
 	}
 }

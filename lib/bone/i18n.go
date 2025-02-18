@@ -2,6 +2,7 @@ package bone
 
 import (
 	"encoding/csv"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -62,6 +63,10 @@ func Tr(key string) string {
 		return key
 	}
 	return t
+}
+
+func Tr_Code(code int) string {
+	return Tr(fmt.Sprintf("CODE_%d", code))
 }
 
 func TrOrError(key string) (string, bool) {
