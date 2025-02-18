@@ -9,21 +9,31 @@ import (
 	"tasker/lib/db"
 )
 
+func parallel_init() {
+	e := db.Init()
+	if e > 0 {
+		panic("Failed to initialize db")
+	}
+}
+
 func main() {
 	bone.Init(bone.Init_Args{
 		Company_Name: "slimebones",
 		App_Name:     "tasker",
 	})
-	e := db.Init()
-	if e > 0 {
-		panic("Failed to initialize db")
-	}
+	go parallel_init()
 	console_reader := bufio.NewReader(os.Stdin)
 
 	// Main loop is blocking on input, other background tasks are goroutines.
 	for {
 		fmt.Print("> ")
-		input, _ := console_reader.ReadString('\n')
+		input, er := console_reader.ReadString('\n')
+		if er != nil {
+			if er.Error() != "EOF" {
+				bone.Log_Error("Unexpected error occured while reading console: %s", er)
+			}
+			return
+		}
 		input = strings.TrimSpace(input)
 		process_input(input)
 	}
