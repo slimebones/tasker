@@ -46,6 +46,7 @@ const (
 func getVersion() (int, int) {
 	var version int
 	tx := Begin()
+	defer tx.Rollback()
 	e := tx.Get(&version, VERSION_GET_QUERY)
 	if e != nil {
 		return 0, Version_Fetch_Error
@@ -175,13 +176,20 @@ func applyMigrations(migrations []string) int {
 		_, er = tx.Exec(query)
 		if er != nil {
 			bone.Log_Error("In db, failed to execute query of file `%s`, error: %s", p, er)
+			tx.Rollback()
 			return 1
 		}
 
-		setVersion(tx, version)
+		e := setVersion(tx, version)
+		if e > 0 {
+			bone.Log_Error("Error setting version")
+			tx.Rollback()
+			return e
+		}
 
 		er = tx.Commit()
 		if er != nil {
+			tx.Rollback()
 			bone.Log_Error("In db, failed to commit query of file `%s`, error: %s", p, er)
 			return 1
 		}

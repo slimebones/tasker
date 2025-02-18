@@ -19,5 +19,5 @@ CREATE TABLE task(
 	--                                    It also must be UTC.
 	schedule TEXT DEFAULT NULL,
 
-	project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE DEFAULT 0
+	project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE DEFAULT 1
 );
