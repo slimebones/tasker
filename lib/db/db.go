@@ -48,7 +48,6 @@ func getVersion() (int, int) {
 	tx := Begin()
 	e := tx.Get(&version, VERSION_GET_QUERY)
 	if e != nil {
-		bone.Log_Error("In db, cannot fetch version")
 		return 0, Version_Fetch_Error
 	}
 	if version < 1 {
@@ -184,6 +183,7 @@ func applyMigrations(migrations []string) int {
 		er = tx.Commit()
 		if er != nil {
 			bone.Log_Error("In db, failed to commit query of file `%s`, error: %s", p, er)
+			return 1
 		}
 	}
 	return 0

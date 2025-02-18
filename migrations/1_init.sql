@@ -15,9 +15,9 @@ CREATE TABLE task(
 	-- It should be forbidden for external modification, if the schedule is set.
 	completion_priority INTEGER DEFAULT 1,
 	-- Time in which this task should be done.
-	-- Format: YYYY[-MM[-DD]] [HH:mm:ss AM/PM], so year should always be set if
-	--         the schedule is set.
+	-- Format: YYYY[-MM[-DD]] [HH:mm:ss], so year should always be set if the schedule is set.
+	--                                    It also must be UTC.
 	schedule TEXT DEFAULT NULL,
 
-	project_id INTEGER NOT NULL REFERENCES project(id)
+	project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE DEFAULT 0
 );
