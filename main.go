@@ -161,7 +161,7 @@ func show_tasks(ctx *Command_Context) int {
 	tasks := []Task{}
 	er := tx.Select(&tasks, "SELECT * FROM task")
 	if er != nil {
-		print(er.Error(), "\n")
+		bone.Log_Error("During task selection, an error occured: %s", er)
 		return Error
 	}
 	for _, t := range tasks {
