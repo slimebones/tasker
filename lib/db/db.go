@@ -48,10 +48,11 @@ func getVersion() (int, int) {
 	tx := Begin()
 	e := tx.Get(&version, VERSION_GET_QUERY)
 	if e != nil {
+		bone.Log_Error("In db, cannot fetch version")
 		return 0, Version_Fetch_Error
 	}
 	if version < 1 {
-		bone.Log_Error("In db, version cannot be `%d`.", version)
+		bone.Log_Error("In db, version cannot be `%d`", version)
 		return 0, 1
 	}
 	return version, 0
@@ -88,6 +89,7 @@ func getSortedMigrations() ([]string, int) {
 		return date0 < date1
 	})
 	if sliceError {
+		bone.Log_Error("In db, slicing error")
 		return nil, 1
 	}
 	return filenames, 0
@@ -212,6 +214,7 @@ func Init() int {
 		addr,
 	)
 	if er != nil {
+		bone.Log_Error("In db, connection error: %s", er)
 		return Connection_Error
 	}
 
