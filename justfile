@@ -3,8 +3,8 @@ set dotenv-load
 # HOME := env HOME
 dbmate := if os_family() == "windows" { "dbmate.cmd" } else { "dbmate" }
 
-run: compile
-	@ ./bin/main
+run *args="": compile
+	@ ./bin/main {{args}}
 
 compile:
 	@ rm -rf bin

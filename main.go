@@ -382,6 +382,18 @@ func main() {
 		panic("Failed to initialize db")
 	}
 	defer db.Deinit()
+
+	// Execute one-shot command
+	if len(os.Args) > 2 && os.Args[1] == "--" {
+		input := strings.Join(os.Args[2:], " ")
+		input = strings.TrimSpace(input)
+		if input == "q" {
+			return
+		}
+		process_input(input)
+		return
+	}
+
 	console_reader := bufio.NewReader(os.Stdin)
 
 	// Main loop is blocking on input, other background tasks are goroutines.
