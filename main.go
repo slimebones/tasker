@@ -116,7 +116,7 @@ func add_task(ctx *Command_Context) int {
 
 	tx := db.Begin()
 	r, er := tx.Exec(
-		"INSERT INTO task (title, created_sec, completion_priority, schedule, project_id) VALUES ($1, $2, $3, $4)",
+		"INSERT INTO task (title, created_sec, completion_priority, schedule, project_id) VALUES ($1, $2, $3, $4, $5)",
 		title,
 		bone.Utc(),
 		priority,
@@ -127,7 +127,7 @@ func add_task(ctx *Command_Context) int {
 		bone.Log_Error("During task insertion, an error occured: %s", er)
 		return ERROR
 	}
-	last_id, er := r.LastInsertId()
+	_, er = r.LastInsertId()
 	if er != nil {
 		bone.Log_Error("During last insert id retrieve, an error occured: %s", er)
 		return ERROR
@@ -139,7 +139,7 @@ func add_task(ctx *Command_Context) int {
 		return ERROR
 	}
 
-	bone.Log("Created task #%d", last_id)
+	fmt.Print("Created\n")
 
 	return OK
 }
@@ -187,8 +187,11 @@ func show_tasks(ctx *Command_Context) int {
 		bone.Log_Error("During task selection, an error occured: %s", er)
 		return ERROR
 	}
+	if len(tasks) == 0 {
+		fmt.Print("No tasks\n")
+	}
 	for _, t := range tasks {
-		fmt.Printf("%s %s", t.Get_Completion_Mark(), t.Title)
+		fmt.Printf("%s %s\n", t.Get_Completion_Mark(), t.Title)
 	}
 	return OK
 }
