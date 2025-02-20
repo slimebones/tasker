@@ -172,48 +172,48 @@ func add_task(ctx *Command_Context) int {
 	title := ""
 	var schedule *string = nil
 	priority := -1
-	for _, a := range ctx.Args {
-		if date_regex.MatchString(a) {
+	for _, arg := range ctx.Args {
+		if date_regex.MatchString(arg) {
 			if schedule != nil {
 				bone.Log_Error("Multiple date defined")
 				return INPUT_ERROR
 			}
-			schedule = &a
+			schedule = &arg
 			continue
 		}
-		if time_regex.MatchString(a) {
+		if time_regex.MatchString(arg) {
 			if schedule == nil {
 				bone.Log_Error("Time precedes date")
 				return INPUT_ERROR
 			}
-			inter := *schedule + a
+			inter := *schedule + arg
 			schedule = &inter
 			continue
 		}
 
-		if title == "p1" {
+		if arg == "p3" {
 			priority = SOMETIME_LATER_PRIORITY
-		}
-		if title == "p2" {
-			priority = THIS_WEEK_PRIORITY
-		}
-		if title == "p3" {
-			priority = TODAY_PRIORITY
-		}
-		if priority != -1 {
-			if schedule != nil {
-				bone.Log_Error("Priority and schedule are set simultaneously")
-				return INPUT_ERROR
-			}
-			// Clearly set, exclude from final title
 			continue
-		} else {
-			// Default
-			priority = SOMETIME_LATER_PRIORITY
+		}
+		if arg == "p2" {
+			priority = THIS_WEEK_PRIORITY
+			continue
+		}
+		if arg == "p1" {
+			priority = TODAY_PRIORITY
+			continue
 		}
 
-		title += a + " "
+		title += arg + " "
 	}
+	if priority != -1 && schedule != nil {
+		bone.Log_Error("Priority and schedule are set simultaneously")
+		return INPUT_ERROR
+	} else if priority == -1 {
+		// Default
+		priority = SOMETIME_LATER_PRIORITY
+	}
+	println(priority)
 	title = strings.TrimSpace(title)
 
 	tx := db.Begin()
@@ -261,6 +261,18 @@ type Task struct {
 	Priority           int     `db:"completion_priority"`
 	Schedule           *string `db:"schedule"`
 	Project_Id         int     `db:"project_id"`
+}
+
+func (t *Task) Get_Priority_Mark() string {
+	switch t.Priority {
+	case 1:
+		return "🟡"
+	case 2:
+		return "🔴"
+	// Everything unusual is considered as active.
+	default:
+		return "🟢"
+	}
 }
 
 func (t *Task) Get_Completion_Mark() string {
@@ -325,7 +337,7 @@ func show_tasks(ctx *Command_Context) int {
 		fmt.Print("No tasks\n")
 	}
 	for i, t := range hook_tasks {
-		fmt.Printf("|%d| %s %s\n", i+1, t.Get_Completion_Mark(), t.Title)
+		fmt.Printf("%s |%d| %s %s\n", t.Get_Priority_Mark(), i+1, t.Get_Completion_Mark(), t.Title)
 	}
 	return OK
 }
