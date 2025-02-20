@@ -213,7 +213,6 @@ func add_task(ctx *Command_Context) int {
 		// Default
 		priority = SOMETIME_LATER_PRIORITY
 	}
-	println(priority)
 	title = strings.TrimSpace(title)
 
 	tx := db.Begin()
@@ -278,12 +277,12 @@ func (t *Task) Get_Priority_Mark() string {
 func (t *Task) Get_Completion_Mark() string {
 	switch t.State {
 	case 1:
-		return "+"
+		return "\033[32m+\033[0m"
 	case 2:
-		return "-"
-	// Everything unusual is considered as active.
+		return "\033[31m-\033[0m"
 	default:
-		return "."
+		// Everything unusual is considered as active.
+		return "\033[35m.\033[0m"
 	}
 }
 
@@ -337,7 +336,7 @@ func show_tasks(ctx *Command_Context) int {
 		fmt.Print("No tasks\n")
 	}
 	for i, t := range hook_tasks {
-		fmt.Printf("%s |%d| %s %s\n", t.Get_Priority_Mark(), i+1, t.Get_Completion_Mark(), t.Title)
+		fmt.Printf("|%d| %s %s\n", i+1, t.Get_Completion_Mark(), t.Title)
 	}
 	return OK
 }
