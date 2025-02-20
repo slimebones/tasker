@@ -2,7 +2,7 @@ package bone
 
 import "time"
 
-func Time_Sec() int64 {
+func Utc() int64 {
 	return time.Now().Unix()
 }
 

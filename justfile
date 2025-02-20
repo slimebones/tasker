@@ -19,3 +19,5 @@ create_db:
 
 drop_db:
     dbmate --url $"sqlite:($env.HOME)/appdata/roaming/slimebones/tasker/main.db" drop
+
+recreate_db: drop_db create_db
