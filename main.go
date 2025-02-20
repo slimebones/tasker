@@ -112,7 +112,7 @@ func update_task(ctx *Command_Context) int {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	where_query, args, er := sqlx.In("id in (?)", task_ids)
+	where_query, where_args, er := sqlx.In("id in (?)", task_ids)
 	if er != nil {
 		bone.Log_Error("During query building, an error occured: %s", er)
 		return DELETE_ERROR
@@ -122,7 +122,7 @@ func update_task(ctx *Command_Context) int {
 	set_query := "SET state = 1"
 
 	if ctx.Has_Arg("-d") {
-		_, er = tx.Exec(fmt.Sprintf("DELETE FROM task WHERE %s", where_query), args...)
+		_, er = tx.Exec(fmt.Sprintf("DELETE FROM task WHERE %s", where_query), where_args...)
 		if er != nil {
 			return DELETE_ERROR
 		}
@@ -146,9 +146,10 @@ func update_task(ctx *Command_Context) int {
 
 	_, er = tx.Exec(
 		fmt.Sprintf("UPDATE task %s WHERE %s", set_query, where_query),
-		task_ids[0],
+		where_args...,
 	)
 	if er != nil {
+		bone.Log_Error("During update, an error occured: %s", er)
 		return UPDATE_ERROR
 	}
 
