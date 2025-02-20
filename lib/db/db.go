@@ -26,8 +26,6 @@ const VERSION_START_QUERY = `
 
 const VERSION_GET_QUERY = `SELECT version FROM db_version LIMIT 1`
 
-const ()
-
 var driver string
 var addr string
 var maxOpen int

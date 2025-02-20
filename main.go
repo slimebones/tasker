@@ -293,7 +293,7 @@ var hook_tasks = []*Task{}
 // Show tasks from the current active project. By default only active tasks
 // are shown.
 //
-// Default chronological order: most recent first.
+// Default chronological order: oldest first.
 //
 // Args:
 //   - `-reverse`: reverse order
@@ -313,16 +313,16 @@ func show_tasks(ctx *Command_Context) int {
 		where_query = "WHERE state = 2"
 	}
 
-	order_query := "ORDER BY created_sec DESC"
+	order_query := "ORDER BY created_sec ASC"
 	if ctx.Has_Arg("-reverse") {
-		order_query = "ORDER BY created_sec ASC"
+		order_query = "ORDER BY created_sec DESC"
 	}
 	if ctx.Has_Arg("-a") {
 		where_query = ""
 		// Show active first, completed second, rejected last
-		order_query = "ORDER BY state ASC, created_sec DESC"
+		order_query = "ORDER BY state ASC, created_sec ASC"
 		if ctx.Has_Arg("-reverse") {
-			order_query = "ORDER BY state DESC, created_sec ASC"
+			order_query = "ORDER BY state DESC, created_sec DESC"
 		}
 	}
 
