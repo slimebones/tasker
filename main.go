@@ -16,6 +16,47 @@ import (
 
 type handler func(ctx *Command_Context) int
 
+type Project struct {
+	Id    int    `db:"id"`
+	Title string `db:"title"`
+}
+
+type Task struct {
+	Id                 int     `db:"id"`
+	Title              string  `db:"title"`
+	State              int     `db:"state"`
+	Created_Sec        int     `db:"created_sec"`
+	Last_Completed_Sec int     `db:"last_completed_sec"`
+	Last_Rejected_Sec  int     `db:"last_rejected_sec"`
+	Priority           int     `db:"completion_priority"`
+	Schedule           *string `db:"schedule"`
+	Project_Id         int     `db:"project_id"`
+}
+
+func (t *Task) Get_Priority_Mark() string {
+	switch t.Priority {
+	case 1:
+		return "🟡"
+	case 2:
+		return "🔴"
+	// Everything unusual is considered as active.
+	default:
+		return "🟢"
+	}
+}
+
+func (t *Task) Get_Completion_Mark() string {
+	switch t.State {
+	case 1:
+		return "\033[32m+\033[0m"
+	case 2:
+		return "\033[31m-\033[0m"
+	default:
+		// Everything unusual is considered as active.
+		return "\033[35m.\033[0m"
+	}
+}
+
 var COMMANDS = map[string]handler{
 	"s":    show_tasks,
 	"a":    add_task,
@@ -39,6 +80,15 @@ func (ctx *Command_Context) Has_Arg(arg string) bool {
 	return false
 }
 
+func (ctx *Command_Context) Has_Arg_Index(arg string) (bool, int) {
+	for i, a := range ctx.Args {
+		if a == arg {
+			return true, i
+		}
+	}
+	return false, -1
+}
+
 const (
 	OK = iota
 	ERROR
@@ -46,6 +96,7 @@ const (
 	COMMIT_ERROR
 	UPDATE_ERROR
 	DELETE_ERROR
+	HOOK_TYPE_ERROR
 )
 
 const (
@@ -66,9 +117,17 @@ var current_project_name = "main"
 var date_regex = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 var time_regex = regexp.MustCompile(`\s\d{2}:\d{2}`)
 
+var hooks = []any{}
+
+func set_hooks[T any](items []T) {
+	clear_hooks()
+	for _, i := range items {
+		hooks = append(hooks, i)
+	}
+}
+
 func clear_hooks() {
-	hook_projects = []*Project{}
-	hook_tasks = []*Task{}
+	hooks = []any{}
 }
 
 // Show statistics of the current project.
@@ -77,6 +136,10 @@ func stat(ctx *Command_Context) int {
 }
 
 func switch_project(ctx *Command_Context) int {
+	return OK
+}
+
+func find(ctx *Command_Context) int {
 	return OK
 }
 
@@ -89,6 +152,7 @@ func switch_project(ctx *Command_Context) int {
 //   - `-r`: mark as rejected
 //   - `-d`: delete forever
 //   - `-m PROJECT_NAME`: move to another project
+//   - `-n TITLE`: set title instead setting title
 func update_task(ctx *Command_Context) int {
 	var er error
 
@@ -104,11 +168,16 @@ func update_task(ctx *Command_Context) int {
 			bone.Log_Error("Cannot convert order number `%d` to integer", hook_number)
 			return INPUT_ERROR
 		}
-		if hook_number-1 >= len(hook_tasks) {
+		if hook_number-1 >= len(hooks) {
 			bone.Log_Error("Cannot find task with hook number `%d`", hook_number)
 			return INPUT_ERROR
 		}
-		task_ids = append(task_ids, hook_tasks[hook_number-1].Id)
+		task, ok := hooks[hook_number-1].(*Task)
+		if !ok {
+			bone.Log_Error("Hook #%d is not a Task", hook_number)
+			return HOOK_TYPE_ERROR
+		}
+		task_ids = append(task_ids, task.Id)
 	}
 	tx := db.Begin()
 	defer tx.Rollback()
@@ -143,6 +212,21 @@ func update_task(ctx *Command_Context) int {
 	if ctx.Has_Arg("-m") {
 		bone.Log_Error("Move is not supported yet")
 		return ERROR
+	}
+	if has, index := ctx.Has_Arg_Index("-n"); has {
+		if index+1 >= len(ctx.Args) {
+			bone.Log_Error("-n parameter missing title")
+			return INPUT_ERROR
+		}
+
+		title := ""
+		for _, a := range ctx.Args[index+1:] {
+			// This is final parameter - we don't stop here for any other commands
+			title += a + " "
+		}
+		title, _ = strings.CutSuffix(title, " ")
+
+		set_query = fmt.Sprintf("SET title = '%s'", title)
 	}
 
 	_, er = tx.Exec(
@@ -246,50 +330,6 @@ func add_task(ctx *Command_Context) int {
 	return OK
 }
 
-type Project struct {
-	Id    int    `db:"id"`
-	Title string `db:"title"`
-}
-
-type Task struct {
-	Id                 int     `db:"id"`
-	Title              string  `db:"title"`
-	State              int     `db:"state"`
-	Created_Sec        int     `db:"created_sec"`
-	Last_Completed_Sec int     `db:"last_completed_sec"`
-	Last_Rejected_Sec  int     `db:"last_rejected_sec"`
-	Priority           int     `db:"completion_priority"`
-	Schedule           *string `db:"schedule"`
-	Project_Id         int     `db:"project_id"`
-}
-
-func (t *Task) Get_Priority_Mark() string {
-	switch t.Priority {
-	case 1:
-		return "🟡"
-	case 2:
-		return "🔴"
-	// Everything unusual is considered as active.
-	default:
-		return "🟢"
-	}
-}
-
-func (t *Task) Get_Completion_Mark() string {
-	switch t.State {
-	case 1:
-		return "\033[32m+\033[0m"
-	case 2:
-		return "\033[31m-\033[0m"
-	default:
-		// Everything unusual is considered as active.
-		return "\033[35m.\033[0m"
-	}
-}
-
-var hook_projects = []*Project{}
-var hook_tasks = []*Task{}
-
 // Show tasks from the current active project. By default only active tasks
 // are shown.
 //
@@ -301,7 +341,6 @@ var hook_tasks = []*Task{}
 //   - `-c`: show only completed
 //   - `-r`: show only rejected
 func show_tasks(ctx *Command_Context) int {
-	clear_hooks()
 	tx := db.Begin()
 	defer tx.Rollback()
 
@@ -328,15 +367,22 @@ func show_tasks(ctx *Command_Context) int {
 
 	query := fmt.Sprintf("SELECT * FROM task %s %s", where_query, order_query)
 
-	er := tx.Select(&hook_tasks, query)
+	tasks := []*Task{}
+	er := tx.Select(&tasks, query)
 	if er != nil {
 		bone.Log_Error("During task selection, an error occured: %s", er)
 		return ERROR
 	}
-	if len(hook_tasks) == 0 {
+	set_hooks(tasks)
+	if len(hooks) == 0 {
 		fmt.Print("No tasks\n")
 	}
-	for i, t := range hook_tasks {
+	for i, h := range hooks {
+		t, ok := h.(*Task)
+		if !ok {
+			bone.Log_Error("Hook #%d is not a task", i+1)
+			return HOOK_TYPE_ERROR
+		}
 		fmt.Printf("|%d| %s %s\n", i+1, t.Get_Completion_Mark(), t.Title)
 	}
 	return OK
