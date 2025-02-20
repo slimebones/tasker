@@ -189,7 +189,7 @@ func update_task(ctx *Command_Context) int {
 	}
 	where_query = tx.Rebind(where_query)
 
-	set_query := "SET state = 1"
+	set_query := fmt.Sprintf("SET state = 1, last_completed_sec = %d", bone.Utc())
 
 	if ctx.Has_Arg("-d") {
 		_, er = tx.Exec(fmt.Sprintf("DELETE FROM task WHERE %s", where_query), where_args...)
@@ -207,7 +207,7 @@ func update_task(ctx *Command_Context) int {
 		return OK
 	}
 	if ctx.Has_Arg("-r") {
-		set_query = "SET state = 2"
+		set_query = fmt.Sprintf("SET state = 2, last_rejected_sec = %d", bone.Utc())
 	}
 	if ctx.Has_Arg("-m") {
 		bone.Log_Error("Move is not supported yet")
@@ -359,9 +359,9 @@ func show_tasks(ctx *Command_Context) int {
 	if ctx.Has_Arg("-a") {
 		where_query = ""
 		// Show active first, completed second, rejected last
-		order_query = "ORDER BY state ASC, created_sec ASC"
+		order_query = "ORDER BY state DESC, created_sec ASC"
 		if ctx.Has_Arg("-reverse") {
-			order_query = "ORDER BY state DESC, created_sec DESC"
+			order_query = "ORDER BY state ASC, created_sec DESC"
 		}
 	}
 
