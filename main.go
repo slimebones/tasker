@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"regexp"
@@ -373,11 +374,12 @@ func process_input(input string) {
 }
 
 func main() {
+	dbsync := flag.Bool("dbsync", false, "Whether to sync database.")
 	bone.Init(bone.Init_Args{
 		Company_Name: "slimebones",
 		App_Name:     "tasker",
 	})
-	e := db.Init()
+	e := db.Init(*dbsync)
 	if e > 0 {
 		panic("Failed to initialize db")
 	}

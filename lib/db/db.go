@@ -202,7 +202,7 @@ func applyMigrations(migrations []string) int {
 //
 // If we cannot sync, we cannot start working with database. In such case we
 // panic.
-func Init() int {
+func Init(should_sync bool) int {
 	driver = bone.Config.GetString("db", "driver", "sqlite")
 	addr = bone.Config.GetString("db", "addr", ":memory:")
 	maxOpen = bone.Config.GetInt("db", "max_open", 0)
@@ -236,10 +236,12 @@ func Init() int {
 		connection.MustExec("PRAGMA foreign_keys = 1")
 	}
 
-	e := sync()
-	if e > 0 {
-		bone.Log_Error("In db, sync issue")
-		return e
+	if should_sync {
+		e := sync()
+		if e > 0 {
+			bone.Log_Error("In db, sync issue")
+			return e
+		}
 	}
 
 	return 0
