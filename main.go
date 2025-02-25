@@ -143,6 +143,31 @@ func find(ctx *Command_Context) int {
 	return OK
 }
 
+var prompted = false
+var prompted_callback func(answer bool) int = nil
+
+func answer_prompt(answer bool) {
+	if !prompted {
+		bone.Log_Error("Inactive prompt")
+		return
+	}
+	prompted = false
+	e := prompted_callback(answer)
+	if e != OK {
+		bone.Log_Error("During prompted callback, an error #%d occured", e)
+	}
+	prompted_callback = nil
+}
+
+func prompt(text string, callback func(answer bool) int) {
+	if prompted {
+		bone.Log_Error("Already prompted")
+		return
+	}
+	prompted = true
+	fmt.Println(text + "[Y/N]\n")
+}
+
 // Change task out of last rendered tasks by order number.
 //
 // Default behaviour: mark as completed.
@@ -194,18 +219,25 @@ func update_task(ctx *Command_Context) int {
 	set_query := fmt.Sprintf("SET state = 1, last_completed_sec = %d", bone.Utc())
 
 	if ctx.Has_Arg("-d") {
-		_, er = tx.Exec(fmt.Sprintf("DELETE FROM task WHERE %s", where_query), where_args...)
-		if er != nil {
-			return DELETE_ERROR
-		}
+		var delete_tasks = func(answer bool) int {
+			if answer {
+				tx := db.Begin()
+				defer tx.Rollback()
+				_, er = tx.Exec(fmt.Sprintf("DELETE FROM task WHERE %s", where_query), where_args...)
+				if er != nil {
+					return DELETE_ERROR
+				}
 
-		er = tx.Commit()
-		if er != nil {
-			return COMMIT_ERROR
-		}
+				er = tx.Commit()
+				if er != nil {
+					return COMMIT_ERROR
+				}
 
-		fmt.Printf("Deleted\n")
-		clear_hooks()
+				fmt.Printf("Deleted\n")
+			}
+			return OK
+		}
+		prompt(fmt.Sprintf("Delete tasks '%s'?", strings.Join(parts, ",")), delete_tasks)
 		return OK
 	}
 	if ctx.Has_Arg("-r") {
@@ -456,6 +488,24 @@ func process_input(input string) {
 	input_parts := strings.Fields(input)
 	if len(input_parts) == 0 {
 		return
+	}
+
+	if prompted {
+		var answer bool
+		switch input {
+		case "y":
+			answer = true
+		case "n":
+			answer = false
+		case "Y":
+			answer = true
+		case "N":
+			answer = false
+		default:
+			bone.Log("Type answer 'Y' or 'N'")
+			return
+		}
+		answer_prompt(answer)
 	}
 
 	command_name := input_parts[0]
