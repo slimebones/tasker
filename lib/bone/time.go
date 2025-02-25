@@ -7,8 +7,8 @@ func Utc() int64 {
 }
 
 // Formats timestamp to a date.
-func Date_Sec(sec int64, format string) string {
-	return time.Unix(sec, 0).Format(format)
+func Date_Sec(sec int, format string) string {
+	return time.Unix(int64(sec), 0).Format(format)
 }
 
 func Sleep_Sec(duration_sec int64) {

@@ -152,7 +152,9 @@ func find(ctx *Command_Context) int {
 //   - `-r`: mark as rejected
 //   - `-d`: delete forever
 //   - `-m PROJECT_NAME`: move to another project
-//   - `-n TITLE`: set title instead setting title
+//   - `-n TITLE`: set title
+//   - `-np TEXT`: prepend to title
+//   - `-na TEXT`: append to title
 func update_task(ctx *Command_Context) int {
 	var er error
 
@@ -228,6 +230,37 @@ func update_task(ctx *Command_Context) int {
 
 		set_query = fmt.Sprintf("SET title = '%s'", title)
 	}
+	if has, index := ctx.Has_Arg_Index("-na"); has {
+		if index+1 >= len(ctx.Args) {
+			bone.Log_Error("-na parameter missing text")
+			return INPUT_ERROR
+		}
+
+		// Add space prefix as we want it by default
+		title := " "
+		for _, a := range ctx.Args[index+1:] {
+			// This is final parameter - we don't stop here for any other commands
+			title += a + " "
+		}
+		title, _ = strings.CutSuffix(title, " ")
+
+		set_query = fmt.Sprintf("SET title = title || '%s'", title)
+	}
+	if has, index := ctx.Has_Arg_Index("-np"); has {
+		if index+1 >= len(ctx.Args) {
+			bone.Log_Error("-np parameter missing text")
+			return INPUT_ERROR
+		}
+
+		title := ""
+		for _, a := range ctx.Args[index+1:] {
+			// This is final parameter - we don't stop here for any other commands
+			title += a + " "
+		}
+		// Do not cut space suffix as we do want it by default
+
+		set_query = fmt.Sprintf("SET title = '%s' || title", title)
+	}
 
 	_, er = tx.Exec(
 		fmt.Sprintf("UPDATE task %s WHERE %s", set_query, where_query),
@@ -244,7 +277,6 @@ func update_task(ctx *Command_Context) int {
 	}
 
 	fmt.Printf("Updated\n")
-	clear_hooks()
 	return OK
 }
 
@@ -340,6 +372,11 @@ func add_task(ctx *Command_Context) int {
 //   - `-a`: show all
 //   - `-c`: show only completed
 //   - `-r`: show only rejected
+//   - `-tcreated`: show creation times
+//   - `-tcompleted`: show completion times
+//   - `-trejected`: show rejection times
+//   - `-ocompleted`: order by completion time, integrates with `-reverse`
+//   - `-orejected`: order by rejection time, integrates with `-reverse`
 func show_tasks(ctx *Command_Context) int {
 	tx := db.Begin()
 	defer tx.Rollback()
@@ -356,6 +393,20 @@ func show_tasks(ctx *Command_Context) int {
 	if ctx.Has_Arg("-reverse") {
 		order_query = "ORDER BY created_sec DESC"
 	}
+
+	if ctx.Has_Arg("-ocompleted") {
+		order_query = "ORDER BY last_completed_sec ASC"
+		if ctx.Has_Arg("-reverse") {
+			order_query = "ORDER BY last_completed_sec DESC"
+		}
+	}
+	if ctx.Has_Arg("-orejected") {
+		order_query = "ORDER BY last_rejected_sec ASC"
+		if ctx.Has_Arg("-reverse") {
+			order_query = "ORDER BY last_rejected_sec DESC"
+		}
+	}
+
 	if ctx.Has_Arg("-a") {
 		where_query = ""
 		// Show active first, completed second, rejected last
@@ -383,9 +434,21 @@ func show_tasks(ctx *Command_Context) int {
 			bone.Log_Error("Hook #%d is not a task", i+1)
 			return HOOK_TYPE_ERROR
 		}
-		fmt.Printf("|%d| %s %s\n", i+1, t.Get_Completion_Mark(), t.Title)
+		if ctx.Has_Arg("-tcreated") {
+			fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Created_Sec), t.Title)
+		} else if ctx.Has_Arg("-tcompleted") {
+			fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Last_Completed_Sec), t.Title)
+		} else if ctx.Has_Arg("-trejected") {
+			fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Last_Rejected_Sec), t.Title)
+		} else {
+			fmt.Printf("|%d| %s %s\n", i+1, t.Get_Completion_Mark(), t.Title)
+		}
 	}
 	return OK
+}
+
+func convert_sec_to_str(sec int) string {
+	return bone.Date_Sec(sec, "2006-01-02 15:04")
 }
 
 func process_input(input string) {
