@@ -166,7 +166,7 @@ func prompt(text string, callback func(answer bool) int) {
 	}
 	prompted = true
 	prompted_callback = callback
-	fmt.Println(text + " [Y/N]\n")
+	fmt.Println(text + " [Y/N]")
 }
 
 // Change task out of last rendered tasks by order number.
@@ -511,6 +511,7 @@ func process_input(input string) {
 			return
 		}
 		answer_prompt(answer)
+		return
 	}
 
 	command_name := input_parts[0]
@@ -564,7 +565,11 @@ func main() {
 
 	// Main loop is blocking on input, other background tasks are goroutines.
 	for {
-		fmt.Printf("\033[33m(%s)\033[0m\033[35m>\033[0m ", current_project_name)
+		var final_sign = ">"
+		if prompted {
+			final_sign = "?"
+		}
+		fmt.Printf("\033[33m(%s)\033[0m\033[35m%s\033[0m ", current_project_name, final_sign)
 		input, er := console_reader.ReadString('\n')
 		if er != nil {
 			if er.Error() != "EOF" {
