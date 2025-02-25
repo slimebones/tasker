@@ -165,7 +165,8 @@ func prompt(text string, callback func(answer bool) int) {
 		return
 	}
 	prompted = true
-	fmt.Println(text + "[Y/N]\n")
+	prompted_callback = callback
+	fmt.Println(text + " [Y/N]\n")
 }
 
 // Change task out of last rendered tasks by order number.
@@ -237,7 +238,11 @@ func update_task(ctx *Command_Context) int {
 			}
 			return OK
 		}
-		prompt(fmt.Sprintf("Delete tasks '%s'?", strings.Join(parts, ",")), delete_tasks)
+		var task_label = "task"
+		if len(parts) > 1 {
+			task_label = "tasks"
+		}
+		prompt(fmt.Sprintf("Delete %s %s?", task_label, strings.Join(parts, ",")), delete_tasks)
 		return OK
 	}
 	if ctx.Has_Arg("-r") {
