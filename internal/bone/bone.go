@@ -14,9 +14,13 @@ import (
 	"github.com/go-ini/ini"
 )
 
+const (
+	OK = iota
+	ERROR
+)
+
 type Init_Args struct {
-	Company_Name string
-	App_Name     string
+	Project_Name string
 }
 
 var init_args Init_Args
@@ -27,20 +31,13 @@ var init_args Init_Args
 //
 // Define `flag` arguments *before* calling to this function, since internally
 // it calls `flag.Parse()`.
-func Init(args Init_Args) int {
-	init_args = args
-	if args.Company_Name == "" {
-		Log_Error("Unset CompanyName.")
-		args.Company_Name = "DEFAULT_COMPANY"
-		return 1
-	}
-	if args.App_Name == "" {
-		Log_Error("Unset AppName.")
-		args.App_Name = "DEFAULT_APP"
+func Init(project_name string) int {
+	if project_name == "" {
+		Log_Error("Unset project name")
 		return 1
 	}
 
-	var varflag *string
+	var userdirflag *string
 	var cfgpath string
 	// We don't support args passing in testing mode, so we just initialize
 	// empty strings. Vardir will be targeted to default location and mode will
@@ -49,12 +46,12 @@ func Init(args Init_Args) int {
 		tmp := os.TempDir()
 		// Testing mode has special directory to not interfere with standard
 		// var files.
-		varflag = Atop(path.Join(tmp, args.Company_Name, args.App_Name, "testing"))
+		userdirflag = Atop(path.Join(tmp, project_name, "testing"))
 		// Each test temporary testing directory is re-created.
-		Mkdir(*varflag)
-		e := os.RemoveAll(*varflag)
+		Mkdir(*userdirflag)
+		e := os.RemoveAll(*userdirflag)
 		if e != nil {
-			Log_Error("In db, failed to clear tmp directory.")
+			Log_Error("In bone, failed to clear tmp directory")
 			return 1
 		}
 		// Though if for standard mode we use cfg located at var dir, for
@@ -65,19 +62,19 @@ func Init(args Init_Args) int {
 		cfgpath = Cwd("testing.cfg")
 	} else {
 		cfgpath = ""
-		varflag = flag.String("bvar", "", "Defines location of var directory.")
+		userdirflag = flag.String("buser", "", "Defines location of user directory.")
 	}
 	flag.Parse()
 
-	if *varflag != "" {
-		baseVardir = *varflag
+	if *userdirflag != "" {
+		baseVardir = *userdirflag
 	} else {
 		switch runtime.GOOS {
 		case "windows":
-			baseVardir = fmt.Sprintf("appdata/roaming/%s/%s", args.Company_Name, args.App_Name)
+			baseVardir = fmt.Sprintf("appdata/roaming/%s", project_name)
 		// MacOS and Linux are the same.
 		default:
-			baseVardir = fmt.Sprintf(".%s/%s", args.Company_Name, args.App_Name)
+			baseVardir = fmt.Sprintf(".%s", project_name)
 		}
 		usr, e := user.Current()
 		if e != nil {
@@ -89,7 +86,7 @@ func Init(args Init_Args) int {
 	Mkdir(baseVardir)
 
 	if cfgpath == "" {
-		cfgpath = Vardir("user.cfg")
+		cfgpath = Userdir("user.cfg")
 	}
 	e := Touch(cfgpath)
 	if e != nil {
@@ -102,7 +99,8 @@ func Init(args Init_Args) int {
 		Log_Error("In bone, failed to load config file.")
 		return 1
 	}
-	Config = &AppConfig{
+	Config = &App_Config{
+		path: cfgpath,
 		data: c,
 	}
 	return 0
@@ -139,20 +137,21 @@ func Atop(a string) *string {
 	return &a
 }
 
-type ConfigKey = ini.Key
+type Config_Key = ini.Key
 
-type AppConfig struct {
+type App_Config struct {
+	path string
 	data *ini.File
 }
 
-var environRegex = regexp.MustCompile(`\$[A-Z0-9_]+`)
+var environ_regex = regexp.MustCompile(`\$[A-Z0-9_]+`)
 
 // Return value with environs in format `$ENVIRON` are replaced by found
 // variables.
 //
 // If an environ cannot be found, the block is replaced to `ENVIRON`.
-func activateEnvirons(value string) string {
-	matches := environRegex.FindAllString(value, -1)
+func activate_environs(value string) string {
+	matches := environ_regex.FindAllString(value, -1)
 	for _, m := range matches {
 		environKey, found := strings.CutPrefix(m, "$")
 		if !found {
@@ -170,7 +169,36 @@ func activateEnvirons(value string) string {
 	return value
 }
 
-func (cfg *AppConfig) GetString(module string, key string, d string) string {
+func (cfg *App_Config) Write_String(module string, key string, value string) int {
+	// Get or create the section
+	section, er := cfg.data.GetSection(module)
+	if er != nil {
+		// If the section doesn't exist, create it
+		section, er = cfg.data.NewSection(module)
+		if er != nil {
+			Log_Error("In config, cannot create new section, error: %s", er)
+			return ERROR
+		}
+	}
+
+	section.Key(key).SetValue(value)
+
+	er = cfg.data.SaveTo(cfg.path)
+	if er != nil {
+		Log_Error("Failed to save config, error: %s", er)
+		return ERROR
+	}
+
+	er = cfg.data.Reload()
+	if er != nil {
+		Log_Error("Failed to reload config, error: %s", er)
+		return ERROR
+	}
+
+	return OK
+}
+
+func (cfg *App_Config) Get_String(module string, key string, d string) string {
 	moduleData, e := cfg.data.GetSection(module)
 	if e != nil {
 		return d
@@ -180,10 +208,10 @@ func (cfg *AppConfig) GetString(module string, key string, d string) string {
 		return d
 	}
 	valueString := valueKey.String()
-	return activateEnvirons(valueString)
+	return activate_environs(valueString)
 }
 
-func (cfg *AppConfig) GetBool(module string, key string, d bool) bool {
+func (cfg *App_Config) Get_Bool(module string, key string, d bool) bool {
 	moduleData, e := cfg.data.GetSection(module)
 	if e != nil {
 		return d
@@ -200,7 +228,7 @@ func (cfg *AppConfig) GetBool(module string, key string, d bool) bool {
 	return valueBool
 }
 
-func (cfg *AppConfig) GetInt(module string, key string, d int) int {
+func (cfg *App_Config) Get_Int(module string, key string, d int) int {
 	moduleData, e := cfg.data.GetSection(module)
 	if e != nil {
 		return d
@@ -217,7 +245,24 @@ func (cfg *AppConfig) GetInt(module string, key string, d int) int {
 	return valueInt
 }
 
-var Config *AppConfig
+func (cfg *App_Config) Get_Float(module string, key string, d float64) float64 {
+	moduleData, e := cfg.data.GetSection(module)
+	if e != nil {
+		return d
+	}
+	valueKey, e := moduleData.GetKey(key)
+	if e != nil {
+		return d
+	}
+	value_float, e := valueKey.Float64()
+	if e != nil {
+		Log_Error("For module `%s` and key `%s`, cannot convert value `%s` to int.", module, key, valueKey.String())
+		return d
+	}
+	return value_float
+}
+
+var Config *App_Config
 
 func Testing() bool {
 	return testing.Testing()
@@ -236,7 +281,7 @@ func Cwd(pathParts ...string) string {
 	cwd, e := os.Getwd()
 	if e != nil {
 		Log_Error("Cannot retrieve current working directory.")
-		cwd = os.TempDir() + fmt.Sprintf("/%s/%s/fakecwd", init_args.Company_Name, init_args.App_Name)
+		cwd = os.TempDir() + fmt.Sprintf("/%s/fakecwd", init_args.Project_Name)
 	}
 	for i := 0; i < CwdDepth; i++ {
 		cwd += "/.."
@@ -245,7 +290,7 @@ func Cwd(pathParts ...string) string {
 }
 
 // Access var directory contents.
-func Vardir(pathParts ...string) string {
+func Userdir(pathParts ...string) string {
 	// Secure
 	p := strings.Join(pathParts, "/")
 	p = strings.ReplaceAll(p, "\\", "/")
@@ -265,4 +310,21 @@ func Touch(p string) error {
 	}
 	defer f.Close()
 	return nil
+}
+
+// Trench - approach to handle string-formatted data to language's objects.
+//
+// Converting from strings to objects is called "detrenching", from objects to
+// strings is called "entrenching".
+//
+// For example:
+//   - "1,10" -> ["1", "10"]
+//   - "key=mark,age=20" -> {"key": "mark", "age": "20"}
+func Detrench_List(trench string) []string {
+	return strings.Split(trench, ",")
+}
+
+func File_Exists(path string) bool {
+	_, er := os.Stat(path)
+	return er == nil
 }

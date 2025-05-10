@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"tasker/lib/bone"
-	"tasker/lib/dog"
+	"tasker/internal/bone"
+	"tasker/internal/dog"
 
 	_ "github.com/glebarez/go-sqlite"
 	"github.com/jmoiron/sqlx"
@@ -26,31 +26,19 @@ const VERSION_START_QUERY = `
 
 const VERSION_GET_QUERY = `SELECT version FROM db_version LIMIT 1`
 
-var driver string
-var addr string
-var maxOpen int
-var maxIdle int
-
 const (
-	Ok = iota
-	Error
-	Empty_Driver_Error
-	Version_Fetch_Error
-	Empty_Addr_Error
-	Connection_Error
-	Dir_Read_Error
+	VersionFetchingError = 2
 )
 
 func getVersion() (int, int) {
 	var version int
 	tx := Begin()
-	defer tx.Rollback()
 	e := tx.Get(&version, VERSION_GET_QUERY)
 	if e != nil {
-		return 0, Version_Fetch_Error
+		return 0, VersionFetchingError
 	}
 	if version < 1 {
-		bone.Log_Error("In db, version cannot be `%d`", version)
+		bone.Log_Error("In db, version cannot be `%d`.", version)
 		return 0, 1
 	}
 	return version, 0
@@ -63,7 +51,8 @@ func Begin() *Tx {
 func getSortedMigrations() ([]string, int) {
 	files, er := os.ReadDir(migrationsDir)
 	if er != nil {
-		return nil, Dir_Read_Error
+		bone.Log_Error("Cannot read migrations dir: " + migrationsDir)
+		return nil, 1
 	}
 	filenames := []string{}
 	for _, file := range files {
@@ -87,7 +76,6 @@ func getSortedMigrations() ([]string, int) {
 		return date0 < date1
 	})
 	if sliceError {
-		bone.Log_Error("In db, slicing error")
 		return nil, 1
 	}
 	return filenames, 0
@@ -112,7 +100,7 @@ func getMigrationsFrom(version int, migrations []string) []string {
 // v1 for empty database, otherwise current database version + 1.
 func getNextVersion() int {
 	currentVersion, e := getVersion()
-	if e == Version_Fetch_Error {
+	if e == VersionFetchingError {
 		currentVersion = -1
 	} else if e > 0 {
 		return e
@@ -138,7 +126,7 @@ var migrationsDir string
 
 // Note: migration down is not yet supported.
 func sync() int {
-	migrationsDir = bone.Cwd("migrations")
+	migrationsDir = bone.Cwd("/db/migrations")
 	nextVersion := getNextVersion()
 
 	migrations, e := getSortedMigrations()
@@ -174,45 +162,42 @@ func applyMigrations(migrations []string) int {
 		_, er = tx.Exec(query)
 		if er != nil {
 			bone.Log_Error("In db, failed to execute query of file `%s`, error: %s", p, er)
-			tx.Rollback()
 			return 1
 		}
 
-		e := setVersion(tx, version)
-		if e > 0 {
-			bone.Log_Error("Error setting version")
-			tx.Rollback()
-			return e
-		}
+		setVersion(tx, version)
 
 		er = tx.Commit()
 		if er != nil {
-			tx.Rollback()
 			bone.Log_Error("In db, failed to commit query of file `%s`, error: %s", p, er)
-			return 1
 		}
 	}
 	return 0
 }
+
+var driver string
+var addr string
+var maxOpen int
+var maxIdle int
 
 // Once we connect the database, we *always* sync it to the latest version
 // possible. Latest version is defined by the `db/migrations` directory.
 //
 // If we cannot sync, we cannot start working with database. In such case we
 // panic.
-func Init(should_sync bool) int {
-	driver = bone.Config.GetString("db", "driver", "sqlite")
-	addr = bone.Config.GetString("db", "addr", ":memory:")
-	maxOpen = bone.Config.GetInt("db", "max_open", 0)
-	maxIdle = bone.Config.GetInt("db", "max_idle", 2)
+func Init() int {
+	driver = bone.Config.Get_String("db", "driver", "sqlite")
+	addr = bone.Config.Get_String("db", "addr", ":memory:")
+	maxOpen = bone.Config.Get_Int("db", "max_open", 0)
+	maxIdle = bone.Config.Get_Int("db", "max_idle", 2)
 
 	if driver == "" {
-		bone.Log_Error("In db, empty driver")
-		return Empty_Driver_Error
+		bone.Log_Error("Empty `db.driver`.")
+		return 1
 	}
 	if addr == "" {
-		bone.Log_Error("In db, empty addr")
-		return Empty_Addr_Error
+		bone.Log_Error("Empty `db.addr`.")
+		return 1
 	}
 
 	_db, er := sqlx.Connect(
@@ -220,8 +205,7 @@ func Init(should_sync bool) int {
 		addr,
 	)
 	if er != nil {
-		bone.Log_Error("In db, connection error: %s", er)
-		return Connection_Error
+		return 1
 	}
 
 	connection = _db
@@ -234,12 +218,9 @@ func Init(should_sync bool) int {
 		connection.MustExec("PRAGMA foreign_keys = 1")
 	}
 
-	if should_sync {
-		e := sync()
-		if e > 0 {
-			bone.Log_Error("In db, sync issue")
-			return e
-		}
+	e := sync()
+	if e > 0 {
+		return e
 	}
 
 	return 0

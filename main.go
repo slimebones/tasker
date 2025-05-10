@@ -2,14 +2,13 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
-	"tasker/lib/bone"
-	"tasker/lib/db"
+	"tasker/internal/bone"
+	"tasker/internal/db"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -539,12 +538,8 @@ func process_input(input string) {
 }
 
 func main() {
-	dbsync := flag.Bool("dbsync", false, "Whether to sync database.")
-	bone.Init(bone.Init_Args{
-		Company_Name: "slimebones",
-		App_Name:     "tasker",
-	})
-	e := db.Init(*dbsync)
+	bone.Init("tasker")
+	e := db.Init()
 	if e > 0 {
 		panic("Failed to initialize db")
 	}

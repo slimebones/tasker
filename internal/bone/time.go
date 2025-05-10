@@ -1,3 +1,4 @@
+// Time is in milliseconds, unless other is clearly specified.
 package bone
 
 import "time"
@@ -9,10 +10,6 @@ func Utc() int64 {
 // Formats timestamp to a date.
 func Date_Sec(sec int, format string) string {
 	return time.Unix(int64(sec), 0).Format(format)
-}
-
-func Sleep_Sec(duration_sec int64) {
-	time.Sleep(time.Duration(duration_sec) * time.Second)
 }
 
 func Sleep_Ms(duration_ms int64) {

@@ -33,7 +33,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"tasker/lib/bone"
+	"tasker/internal/bone"
 )
 
 const (
