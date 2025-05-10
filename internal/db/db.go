@@ -43,6 +43,9 @@ func get_version(tx *Tx) (int, int) {
 	return version, 0
 }
 
+// Begin a new transaction.
+// **Always** call `defer tx.Rollback()`. If you commit, then rollback, it
+// won't hurt in anyway.
 func Begin() *Tx {
 	return connection.MustBegin()
 }
@@ -220,10 +223,10 @@ func Init() int {
 		connection.MustExec("PRAGMA foreign_keys = 1")
 	}
 
-	// e := sync()
-	// if e > 0 {
-	// 	return e
-	// }
+	e := sync()
+	if e > 0 {
+		return e
+	}
 
 	return 0
 }

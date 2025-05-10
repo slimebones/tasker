@@ -58,11 +58,12 @@ func (t *Task) Get_Completion_Mark() string {
 }
 
 var COMMANDS = map[string]handler{
-	"s":    show_tasks,
-	"a":    add_task,
-	"u":    update_task,
-	"w":    switch_project,
-	"stat": stat,
+	"s": show,
+	"a": add_task,
+	"u": update_task,
+	"w": switch_project,
+	"p": add_project,
+	"i": info,
 }
 
 type Command_Context struct {
@@ -121,11 +122,56 @@ func clear_hooks() {
 }
 
 // Show statistics of the current project.
-func stat(ctx *Command_Context) int {
+func info(ctx *Command_Context) int {
 	return common.OK
 }
 
+func add_project(ctx *Command_Context) int {
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	_, er := tx.Exec("INSERT INTO project (title) VALUES ($1)", ctx.Args[0])
+	if er != nil {
+		bone.Log_Error("During project add, cannot insert project with title '%s', the error is: %s", ctx.Args[0], er.Error())
+		return common.INSERT_ERROR
+	}
+
+	er = tx.Commit()
+	if er != nil {
+		return common.COMMIT_ERROR
+	}
+
+	bone.Log("Added project '%s'.", ctx.Args[0])
+
+	return common.OK
+}
+
+// Switch the current active project.
+//
+// Args:
+//   - 1 (default="main"): Name of the project to switch to.
 func switch_project(ctx *Command_Context) int {
+	project_name := "main"
+	if len(ctx.Args) > 0 {
+		project_name = ctx.Args[0]
+	}
+
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	type Temp_Project struct {
+		Id int `db:"id"`
+	}
+	var project Temp_Project
+	er := tx.Get(&project, "SELECT id FROM project WHERE title = $1", project_name)
+	if er != nil {
+		bone.Log_Error("During searching for project '%s', an error occurred: %s.", project_name, er.Error())
+		return common.ERROR
+	}
+
+	current_project_id = project.Id
+	current_project_name = project_name
+
 	return common.OK
 }
 
@@ -229,7 +275,6 @@ func update_task(ctx *Command_Context) int {
 
 				er = tx.Commit()
 				if er != nil {
-					bone.Log(er.Error())
 					return common.COMMIT_ERROR
 				}
 
@@ -264,7 +309,7 @@ func update_task(ctx *Command_Context) int {
 		}
 		title, _ = strings.CutSuffix(title, " ")
 
-		set_query = fmt.Sprintf("SET title = '%s'", title)
+		set_query = fmt.Sprintf("SET title = '%s'", escape_quotes(title))
 	}
 	if has, index := ctx.Has_Arg_Index("-na"); has {
 		if index+1 >= len(ctx.Args) {
@@ -280,7 +325,7 @@ func update_task(ctx *Command_Context) int {
 		}
 		title, _ = strings.CutSuffix(title, " ")
 
-		set_query = fmt.Sprintf("SET title = title || '%s'", title)
+		set_query = fmt.Sprintf("SET title = title || '%s'", escape_quotes(title))
 	}
 	if has, index := ctx.Has_Arg_Index("-np"); has {
 		if index+1 >= len(ctx.Args) {
@@ -298,8 +343,9 @@ func update_task(ctx *Command_Context) int {
 		set_query = fmt.Sprintf("SET title = '%s' || title", escape_quotes(title))
 	}
 
+	query := fmt.Sprintf("UPDATE task %s WHERE %s", set_query, where_query)
 	_, er = tx.Exec(
-		fmt.Sprintf("UPDATE task %s WHERE %s", set_query, where_query),
+		query,
 		where_args...,
 	)
 	if er != nil {
@@ -405,81 +451,119 @@ func add_task(ctx *Command_Context) int {
 // Default chronological order: oldest first.
 //
 // Args:
+//   - `-p`: show projects instead of tasks
 //   - `-reverse`: reverse order
 //   - `-a`: show all
 //   - `-c`: show only completed
 //   - `-r`: show only rejected
-//   - `-tcreated`: show creation times
-//   - `-tcompleted`: show completion times
-//   - `-trejected`: show rejection times
+//   - `-screated`: show creation times
+//   - `-scompleted`: show completion times
+//   - `-srejected`: show rejection times
 //   - `-ocompleted`: order by completion time, integrates with `-reverse`
 //   - `-orejected`: order by rejection time, integrates with `-reverse`
-func show_tasks(ctx *Command_Context) int {
-	where_query := "WHERE state = 0"
-	if ctx.Has_Arg("-c") {
-		where_query = "WHERE state = 1"
-	}
-	if ctx.Has_Arg("-r") {
-		where_query = "WHERE state = 2"
-	}
+func show(ctx *Command_Context) int {
+	project_show := ctx.Has_Arg("-p")
 
-	order_query := "ORDER BY created_sec ASC"
-	if ctx.Has_Arg("-reverse") {
-		order_query = "ORDER BY created_sec DESC"
-	}
+	query := ""
+	where_query := ""
+	order_query := ""
 
-	if ctx.Has_Arg("-ocompleted") {
-		order_query = "ORDER BY last_completed_sec ASC"
+	if !project_show {
+		where_query = "WHERE state = 0"
+		if ctx.Has_Arg("-c") {
+			where_query = "WHERE state = 1"
+		}
+		if ctx.Has_Arg("-r") {
+			where_query = "WHERE state = 2"
+		}
+		where_query += fmt.Sprintf(" AND project_id = %d", current_project_id)
+
+		order_query = "ORDER BY created_sec ASC"
 		if ctx.Has_Arg("-reverse") {
-			order_query = "ORDER BY last_completed_sec DESC"
+			order_query = "ORDER BY created_sec DESC"
+		}
+
+		if ctx.Has_Arg("-ocompleted") {
+			order_query = "ORDER BY last_completed_sec ASC"
+			if ctx.Has_Arg("-reverse") {
+				order_query = "ORDER BY last_completed_sec DESC"
+			}
+		}
+		if ctx.Has_Arg("-orejected") {
+			order_query = "ORDER BY last_rejected_sec ASC"
+			if ctx.Has_Arg("-reverse") {
+				order_query = "ORDER BY last_rejected_sec DESC"
+			}
+		}
+
+		if ctx.Has_Arg("-a") {
+			where_query = ""
+			// Show active first, completed second, rejected last
+			order_query = "ORDER BY state DESC, created_sec ASC"
+			if ctx.Has_Arg("-reverse") {
+				order_query = "ORDER BY state ASC, created_sec DESC"
+			}
 		}
 	}
-	if ctx.Has_Arg("-orejected") {
-		order_query = "ORDER BY last_rejected_sec ASC"
-		if ctx.Has_Arg("-reverse") {
-			order_query = "ORDER BY last_rejected_sec DESC"
-		}
+
+	query = "SELECT * FROM task"
+	if project_show {
+		query = "SELECT * from project"
 	}
-
-	if ctx.Has_Arg("-a") {
-		where_query = ""
-		// Show active first, completed second, rejected last
-		order_query = "ORDER BY state DESC, created_sec ASC"
-		if ctx.Has_Arg("-reverse") {
-			order_query = "ORDER BY state ASC, created_sec DESC"
-		}
-	}
-
-	query := fmt.Sprintf("SELECT * FROM task %s %s", where_query, order_query)
-
-	tasks := []*Task{}
+	query += " %s %s"
+	query = fmt.Sprintf(query, where_query, order_query)
 	tx := db.Begin()
 	defer tx.Rollback()
-	er := tx.Select(&tasks, query)
-	if er != nil {
-		bone.Log_Error("During task selection, an error occured: %s", er)
-		return common.ERROR
-	}
-	set_hooks(tasks)
-	if len(hooks) == 0 {
-		fmt.Print("No tasks\n")
-	}
-	for i, h := range hooks {
-		t, ok := h.(*Task)
-		if !ok {
-			bone.Log_Error("Hook #%d is not a task", i+1)
-			return common.HOOK_TYPE_ERROR
+
+	if !project_show {
+		targets := []*Task{}
+		er := tx.Select(&targets, query)
+		if er != nil {
+			bone.Log_Error("During task selection, an error occured: %s", er)
+			return common.ERROR
 		}
-		if ctx.Has_Arg("-tcreated") {
-			fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Created_Sec), t.Title)
-		} else if ctx.Has_Arg("-tcompleted") {
-			fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Last_Completed_Sec), t.Title)
-		} else if ctx.Has_Arg("-trejected") {
-			fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Last_Rejected_Sec), t.Title)
-		} else {
-			fmt.Printf("|%d| %s %s\n", i+1, t.Get_Completion_Mark(), t.Title)
+		set_hooks(targets)
+		if len(hooks) == 0 {
+			fmt.Print("No tasks\n")
+		}
+		for i, h := range hooks {
+			t, ok := h.(*Task)
+			if !ok {
+				bone.Log_Error("Hook #%d is not a task", i+1)
+				return common.HOOK_TYPE_ERROR
+			}
+			if ctx.Has_Arg("-screated") {
+				fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Created_Sec), t.Title)
+			} else if ctx.Has_Arg("-scompleted") {
+				fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Last_Completed_Sec), t.Title)
+			} else if ctx.Has_Arg("-srejected") {
+				fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Last_Rejected_Sec), t.Title)
+			} else {
+				fmt.Printf("|%d| %s %s\n", i+1, t.Get_Completion_Mark(), t.Title)
+			}
+		}
+	} else {
+		targets := []*Project{}
+		er := tx.Select(&targets, query)
+		if er != nil {
+			bone.Log_Error("During project selection, an error occured: %s", er)
+			return common.ERROR
+		}
+		set_hooks(targets)
+		if len(hooks) == 0 {
+			// This shouldn't be possible.
+			fmt.Print("No projects?\n")
+		}
+		for i, h := range hooks {
+			t, ok := h.(*Project)
+			if !ok {
+				bone.Log_Error("Hook #%d is not a project.", i+1)
+				return common.HOOK_TYPE_ERROR
+			}
+			fmt.Printf("|%d| %s\n", i+1, t.Title)
 		}
 	}
+
 	return common.OK
 }
 
