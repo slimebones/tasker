@@ -4,7 +4,7 @@ set dotenv-load
 dbmate := if os_family() == "windows" { "dbmate.cmd" } else { "dbmate" }
 
 run *args="": compile
-	@ ./bin/main -dbsync {{args}}
+	@ ./bin/main {{args}}
 
 compile:
 	@ rm -rf bin

@@ -126,7 +126,7 @@ var migrationsDir string
 
 // Note: migration down is not yet supported.
 func sync() int {
-	migrationsDir = bone.Cwd("/db/migrations")
+	migrationsDir = bone.Cwd("migrations")
 	nextVersion := getNextVersion()
 
 	migrations, e := getSortedMigrations()
