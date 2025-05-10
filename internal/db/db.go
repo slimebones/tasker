@@ -27,15 +27,14 @@ const VERSION_START_QUERY = `
 const VERSION_GET_QUERY = `SELECT version FROM db_version LIMIT 1`
 
 const (
-	VersionFetchingError = 2
+	VERSION_FETCHING = 2
 )
 
-func getVersion() (int, int) {
+func get_version(tx *Tx) (int, int) {
 	var version int
-	tx := Begin()
 	e := tx.Get(&version, VERSION_GET_QUERY)
 	if e != nil {
-		return 0, VersionFetchingError
+		return 0, VERSION_FETCHING
 	}
 	if version < 1 {
 		bone.Log_Error("In db, version cannot be `%d`.", version)
@@ -49,9 +48,9 @@ func Begin() *Tx {
 }
 
 func getSortedMigrations() ([]string, int) {
-	files, er := os.ReadDir(migrationsDir)
+	files, er := os.ReadDir(migrations_dir)
 	if er != nil {
-		bone.Log_Error("Cannot read migrations dir: " + migrationsDir)
+		bone.Log_Error("Cannot read migrations dir: " + migrations_dir)
 		return nil, 1
 	}
 	filenames := []string{}
@@ -81,8 +80,7 @@ func getSortedMigrations() ([]string, int) {
 	return filenames, 0
 }
 
-func startVersion() {
-	tx := Begin()
+func start_version(tx *Tx) {
 	_, e := tx.Exec(VERSION_START_QUERY)
 	if e != nil {
 		panic(fmt.Sprintf("In db, cannot start version for the database, error: %s", e.Error()))
@@ -98,9 +96,10 @@ func getMigrationsFrom(version int, migrations []string) []string {
 }
 
 // v1 for empty database, otherwise current database version + 1.
-func getNextVersion() int {
-	currentVersion, e := getVersion()
-	if e == VersionFetchingError {
+func get_next_version() int {
+	tx := Begin()
+	currentVersion, e := get_version(tx)
+	if e == VERSION_FETCHING {
 		currentVersion = -1
 	} else if e > 0 {
 		return e
@@ -108,7 +107,7 @@ func getNextVersion() int {
 
 	nextVersion := currentVersion + 1
 	if nextVersion == 0 {
-		startVersion()
+		start_version(tx)
 		nextVersion = 1
 	}
 	return nextVersion
@@ -122,22 +121,23 @@ func setVersion(tx *Tx, version int) int {
 	return 0
 }
 
-var migrationsDir string
+var migrations_dir string
 
 // Note: migration down is not yet supported.
 func sync() int {
-	migrationsDir = bone.Cwd("migrations")
-	nextVersion := getNextVersion()
+	migrations_dir = bone.Cwd("migrations")
+	version := get_next_version()
+	bone.Log("Database version: %d", version)
 
 	migrations, e := getSortedMigrations()
 	if e > 0 {
 		return e
 	}
-	migrations = getMigrationsFrom(nextVersion, migrations)
-	return applyMigrations(migrations)
+	migrations = getMigrationsFrom(version, migrations)
+	return apply_migrations(migrations)
 }
 
-func applyMigrations(migrations []string) int {
+func apply_migrations(migrations []string) int {
 	dogvars := map[string]string{
 		fmt.Sprintf("DRIVER_%s", strings.ToUpper(driver)): "",
 	}
@@ -148,9 +148,9 @@ func applyMigrations(migrations []string) int {
 			return 1
 		}
 
-		bone.Log("In db, sync to version %d.", version)
+		bone.Log("In db, sync to version %d", version)
 
-		p := migrationsDir + "/" + m
+		p := migrations_dir + "/" + m
 		body, ok := dog.ProcessFile(p, dogvars)
 		if !ok {
 			bone.Log_Error("In db, failed to process file `%s` by dog.", p)
@@ -218,10 +218,10 @@ func Init() int {
 		connection.MustExec("PRAGMA foreign_keys = 1")
 	}
 
-	e := sync()
-	if e > 0 {
-		return e
-	}
+	// e := sync()
+	// if e > 0 {
+	// 	return e
+	// }
 
 	return 0
 }

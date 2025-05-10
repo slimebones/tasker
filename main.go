@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"tasker/internal/bone"
+	"tasker/internal/common"
 	"tasker/internal/db"
 
 	"github.com/jmoiron/sqlx"
@@ -89,16 +90,6 @@ func (ctx *Command_Context) Has_Arg_Index(arg string) (bool, int) {
 }
 
 const (
-	OK = iota
-	ERROR
-	INPUT_ERROR
-	COMMIT_ERROR
-	UPDATE_ERROR
-	DELETE_ERROR
-	HOOK_TYPE_ERROR
-)
-
-const (
 	SOMETIME_LATER_PRIORITY = iota
 	THIS_WEEK_PRIORITY
 	TODAY_PRIORITY
@@ -131,15 +122,15 @@ func clear_hooks() {
 
 // Show statistics of the current project.
 func stat(ctx *Command_Context) int {
-	return OK
+	return common.OK
 }
 
 func switch_project(ctx *Command_Context) int {
-	return OK
+	return common.OK
 }
 
 func find(ctx *Command_Context) int {
-	return OK
+	return common.OK
 }
 
 var prompted = false
@@ -152,7 +143,7 @@ func answer_prompt(answer bool) {
 	}
 	prompted = false
 	e := prompted_callback(answer)
-	if e != OK {
+	if e != common.OK {
 		bone.Log_Error("During prompted callback, an error #%d occured", e)
 	}
 	prompted_callback = nil
@@ -166,6 +157,12 @@ func prompt(text string, callback func(answer bool) int) {
 	prompted = true
 	prompted_callback = callback
 	fmt.Println(text + " [Y/N]")
+}
+
+func escape_quotes(s string) string {
+	s = strings.ReplaceAll(s, "'", "''")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	return s
 }
 
 // Change task out of last rendered tasks by order number.
@@ -184,8 +181,11 @@ func update_task(ctx *Command_Context) int {
 	var er error
 
 	if len(ctx.Args) == 0 {
-		return INPUT_ERROR
+		return common.INPUT_ERROR
 	}
+
+	tx := db.Begin()
+	defer tx.Rollback()
 
 	task_ids := []int{}
 	parts := strings.Split(ctx.Args[0], "+")
@@ -193,26 +193,24 @@ func update_task(ctx *Command_Context) int {
 		hook_number, er := strconv.Atoi(p)
 		if er != nil {
 			bone.Log_Error("Cannot convert order number `%d` to integer", hook_number)
-			return INPUT_ERROR
+			return common.INPUT_ERROR
 		}
 		if hook_number-1 >= len(hooks) {
 			bone.Log_Error("Cannot find task with hook number `%d`", hook_number)
-			return INPUT_ERROR
+			return common.INPUT_ERROR
 		}
 		task, ok := hooks[hook_number-1].(*Task)
 		if !ok {
 			bone.Log_Error("Hook #%d is not a Task", hook_number)
-			return HOOK_TYPE_ERROR
+			return common.HOOK_TYPE_ERROR
 		}
 		task_ids = append(task_ids, task.Id)
 	}
-	tx := db.Begin()
-	defer tx.Rollback()
 
 	where_query, where_args, er := sqlx.In("id in (?)", task_ids)
 	if er != nil {
 		bone.Log_Error("During query building, an error occured: %s", er)
-		return DELETE_ERROR
+		return common.DELETE_ERROR
 	}
 	where_query = tx.Rebind(where_query)
 
@@ -222,39 +220,40 @@ func update_task(ctx *Command_Context) int {
 		var delete_tasks = func(answer bool) int {
 			if answer {
 				tx := db.Begin()
-				defer tx.Rollback()
-				_, er = tx.Exec(fmt.Sprintf("DELETE FROM task WHERE %s", where_query), where_args...)
+				delete_query := fmt.Sprintf("DELETE FROM task WHERE %s", where_query)
+				_, er = tx.Exec(delete_query, where_args...)
 				if er != nil {
-					return DELETE_ERROR
+					return common.DELETE_ERROR
 				}
 
 				er = tx.Commit()
 				if er != nil {
-					return COMMIT_ERROR
+					bone.Log(er.Error())
+					return common.COMMIT_ERROR
 				}
 
 				fmt.Printf("Deleted\n")
 			}
-			return OK
+			return common.OK
 		}
 		var task_label = "task"
 		if len(parts) > 1 {
 			task_label = "tasks"
 		}
 		prompt(fmt.Sprintf("Delete %s %s?", task_label, strings.Join(parts, ",")), delete_tasks)
-		return OK
+		return common.OK
 	}
 	if ctx.Has_Arg("-r") {
 		set_query = fmt.Sprintf("SET state = 2, last_rejected_sec = %d", bone.Utc())
 	}
 	if ctx.Has_Arg("-m") {
 		bone.Log_Error("Move is not supported yet")
-		return ERROR
+		return common.ERROR
 	}
 	if has, index := ctx.Has_Arg_Index("-n"); has {
 		if index+1 >= len(ctx.Args) {
 			bone.Log_Error("-n parameter missing title")
-			return INPUT_ERROR
+			return common.INPUT_ERROR
 		}
 
 		title := ""
@@ -269,7 +268,7 @@ func update_task(ctx *Command_Context) int {
 	if has, index := ctx.Has_Arg_Index("-na"); has {
 		if index+1 >= len(ctx.Args) {
 			bone.Log_Error("-na parameter missing text")
-			return INPUT_ERROR
+			return common.INPUT_ERROR
 		}
 
 		// Add space prefix as we want it by default
@@ -285,7 +284,7 @@ func update_task(ctx *Command_Context) int {
 	if has, index := ctx.Has_Arg_Index("-np"); has {
 		if index+1 >= len(ctx.Args) {
 			bone.Log_Error("-np parameter missing text")
-			return INPUT_ERROR
+			return common.INPUT_ERROR
 		}
 
 		title := ""
@@ -295,7 +294,7 @@ func update_task(ctx *Command_Context) int {
 		}
 		// Do not cut space suffix as we do want it by default
 
-		set_query = fmt.Sprintf("SET title = '%s' || title", title)
+		set_query = fmt.Sprintf("SET title = '%s' || title", escape_quotes(title))
 	}
 
 	_, er = tx.Exec(
@@ -304,22 +303,22 @@ func update_task(ctx *Command_Context) int {
 	)
 	if er != nil {
 		bone.Log_Error("During update, an error occured: %s", er)
-		return UPDATE_ERROR
+		return common.UPDATE_ERROR
 	}
 
 	er = tx.Commit()
 	if er != nil {
-		return COMMIT_ERROR
+		return common.COMMIT_ERROR
 	}
 
 	fmt.Printf("Updated\n")
-	return OK
+	return common.OK
 }
 
 func add_task(ctx *Command_Context) int {
 	if len(ctx.Args) == 0 {
 		bone.Log_Error("Enter task title")
-		return INPUT_ERROR
+		return common.INPUT_ERROR
 	}
 	// Purified title
 	title := ""
@@ -329,7 +328,7 @@ func add_task(ctx *Command_Context) int {
 		if date_regex.MatchString(arg) {
 			if schedule != nil {
 				bone.Log_Error("Multiple date defined")
-				return INPUT_ERROR
+				return common.INPUT_ERROR
 			}
 			schedule = &arg
 			continue
@@ -337,7 +336,7 @@ func add_task(ctx *Command_Context) int {
 		if time_regex.MatchString(arg) {
 			if schedule == nil {
 				bone.Log_Error("Time precedes date")
-				return INPUT_ERROR
+				return common.INPUT_ERROR
 			}
 			inter := *schedule + arg
 			schedule = &inter
@@ -361,7 +360,7 @@ func add_task(ctx *Command_Context) int {
 	}
 	if priority != -1 && schedule != nil {
 		bone.Log_Error("Priority and schedule are set simultaneously")
-		return INPUT_ERROR
+		return common.INPUT_ERROR
 	} else if priority == -1 {
 		// Default
 		priority = SOMETIME_LATER_PRIORITY
@@ -369,6 +368,7 @@ func add_task(ctx *Command_Context) int {
 	title = strings.TrimSpace(title)
 
 	tx := db.Begin()
+	defer tx.Rollback()
 	r, er := tx.Exec(
 		"INSERT INTO task (title, created_sec, completion_priority, schedule, project_id) VALUES ($1, $2, $3, $4, $5)",
 		title,
@@ -379,23 +379,23 @@ func add_task(ctx *Command_Context) int {
 	)
 	if er != nil {
 		bone.Log_Error("During task insertion, an error occured: %s", er)
-		return ERROR
+		return common.ERROR
 	}
 	_, er = r.LastInsertId()
 	if er != nil {
 		bone.Log_Error("During last insert id retrieve, an error occured: %s", er)
-		return ERROR
+		return common.ERROR
 	}
 
 	er = tx.Commit()
 	if er != nil {
 		bone.Log_Error("During commit, an error occured: %s", er)
-		return ERROR
+		return common.ERROR
 	}
 
 	fmt.Print("Created\n")
 
-	return OK
+	return common.OK
 }
 
 // Show tasks from the current active project. By default only active tasks
@@ -414,9 +414,6 @@ func add_task(ctx *Command_Context) int {
 //   - `-ocompleted`: order by completion time, integrates with `-reverse`
 //   - `-orejected`: order by rejection time, integrates with `-reverse`
 func show_tasks(ctx *Command_Context) int {
-	tx := db.Begin()
-	defer tx.Rollback()
-
 	where_query := "WHERE state = 0"
 	if ctx.Has_Arg("-c") {
 		where_query = "WHERE state = 1"
@@ -455,10 +452,11 @@ func show_tasks(ctx *Command_Context) int {
 	query := fmt.Sprintf("SELECT * FROM task %s %s", where_query, order_query)
 
 	tasks := []*Task{}
+	tx := db.Begin()
 	er := tx.Select(&tasks, query)
 	if er != nil {
 		bone.Log_Error("During task selection, an error occured: %s", er)
-		return ERROR
+		return common.ERROR
 	}
 	set_hooks(tasks)
 	if len(hooks) == 0 {
@@ -468,7 +466,7 @@ func show_tasks(ctx *Command_Context) int {
 		t, ok := h.(*Task)
 		if !ok {
 			bone.Log_Error("Hook #%d is not a task", i+1)
-			return HOOK_TYPE_ERROR
+			return common.HOOK_TYPE_ERROR
 		}
 		if ctx.Has_Arg("-tcreated") {
 			fmt.Printf("|%d| %s |%s| %s\n", i+1, t.Get_Completion_Mark(), convert_sec_to_str(t.Created_Sec), t.Title)
@@ -480,7 +478,7 @@ func show_tasks(ctx *Command_Context) int {
 			fmt.Printf("|%d| %s %s\n", i+1, t.Get_Completion_Mark(), t.Title)
 		}
 	}
-	return OK
+	return common.OK
 }
 
 func convert_sec_to_str(sec int) string {
@@ -534,6 +532,7 @@ func process_input(input string) {
 	e := cmd(&ctx)
 	if e > 0 {
 		bone.Log_Error("While calling a command `%s`, an error occured: %s", command_name, bone.Tr_Code(e))
+		return
 	}
 }
 
