@@ -98,6 +98,7 @@ func getMigrationsFrom(version int, migrations []string) []string {
 // v1 for empty database, otherwise current database version + 1.
 func get_next_version() int {
 	tx := Begin()
+	defer tx.Rollback()
 	currentVersion, e := get_version(tx)
 	if e == VERSION_FETCHING {
 		currentVersion = -1
@@ -158,6 +159,7 @@ func apply_migrations(migrations []string) int {
 		}
 
 		tx := Begin()
+		defer tx.Rollback()
 		query := *body
 		_, er = tx.Exec(query)
 		if er != nil {

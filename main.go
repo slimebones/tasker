@@ -220,6 +220,7 @@ func update_task(ctx *Command_Context) int {
 		var delete_tasks = func(answer bool) int {
 			if answer {
 				tx := db.Begin()
+				defer tx.Rollback()
 				delete_query := fmt.Sprintf("DELETE FROM task WHERE %s", where_query)
 				_, er = tx.Exec(delete_query, where_args...)
 				if er != nil {
@@ -453,6 +454,7 @@ func show_tasks(ctx *Command_Context) int {
 
 	tasks := []*Task{}
 	tx := db.Begin()
+	defer tx.Rollback()
 	er := tx.Select(&tasks, query)
 	if er != nil {
 		bone.Log_Error("During task selection, an error occured: %s", er)
