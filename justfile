@@ -4,7 +4,7 @@ set dotenv-load
 dbmate := if os_family() == "windows" { "dbmate.cmd" } else { "dbmate" }
 
 run *args="": compile
-	@ ./bin/main {{args}}
+	@ DBSYNC=1 ./bin/main {{args}}
 
 compile:
 	@ rm -rf bin
@@ -26,3 +26,7 @@ drop_db:
 	dbmate --url $"sqlite:($env.HOME)/appdata/roaming/slimebones/tasker/main.db" drop
 
 recreate_db: drop_db create_db
+
+install: compile
+	@ cp bin/main ~/bin/tasker
+	@ echo "Tasker is installed."

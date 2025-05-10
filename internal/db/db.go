@@ -131,7 +131,7 @@ var migrations_dir string
 func sync() int {
 	migrations_dir = bone.Cwd("migrations")
 	version := get_next_version()
-	bone.Log("Database version: %d", version)
+	bone.Log("Synchronizing database version: %d", version)
 
 	migrations, e := getSortedMigrations()
 	if e > 0 {
@@ -223,9 +223,11 @@ func Init() int {
 		connection.MustExec("PRAGMA foreign_keys = 1")
 	}
 
-	e := sync()
-	if e > 0 {
-		return e
+	if os.Getenv("DBSYNC") == "1" {
+		e := sync()
+		if e > 0 {
+			return e
+		}
 	}
 
 	return 0
