@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"tasker/internal/bone"
@@ -58,12 +57,15 @@ func (t *Task) Get_Completion_Mark() string {
 }
 
 var COMMANDS = map[string]handler{
+	"+": complete_task_fast,
+	"-": reject_task_fast,
+	".": add_task_fast,
 	"s": show,
-	"a": add_task,
-	"u": update_task,
-	"w": switch_project,
-	"p": add_project,
+	"a": add,
+	"u": update,
+	"w": switch_,
 	"i": info,
+	"f": find,
 }
 
 type Command_Context struct {
@@ -105,9 +107,6 @@ const (
 var current_project_id = 1
 var current_project_name = "main"
 
-var date_regex = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
-var time_regex = regexp.MustCompile(`\s\d{2}:\d{2}`)
-
 var hooks = []any{}
 
 func set_hooks[T any](items []T) {
@@ -126,31 +125,11 @@ func info(ctx *Command_Context) int {
 	return common.OK
 }
 
-func add_project(ctx *Command_Context) int {
-	tx := db.Begin()
-	defer tx.Rollback()
-
-	_, er := tx.Exec("INSERT INTO project (title) VALUES ($1)", ctx.Args[0])
-	if er != nil {
-		bone.Log_Error("During project add, cannot insert project with title '%s', the error is: %s", ctx.Args[0], er.Error())
-		return common.INSERT_ERROR
-	}
-
-	er = tx.Commit()
-	if er != nil {
-		return common.COMMIT_ERROR
-	}
-
-	bone.Log("Added project '%s'.", ctx.Args[0])
-
-	return common.OK
-}
-
 // Switch the current active project.
 //
 // Args:
 //   - 1 (default="main"): Name of the project to switch to.
-func switch_project(ctx *Command_Context) int {
+func switch_(ctx *Command_Context) int {
 	project_name := "main"
 	if len(ctx.Args) > 0 {
 		project_name = ctx.Args[0]
@@ -223,7 +202,7 @@ func escape_quotes(s string) string {
 //   - `-n TITLE`: set title
 //   - `-np TEXT`: prepend to title
 //   - `-na TEXT`: append to title
-func update_task(ctx *Command_Context) int {
+func update(ctx *Command_Context) int {
 	var er error
 
 	if len(ctx.Args) == 0 {
@@ -362,75 +341,74 @@ func update_task(ctx *Command_Context) int {
 	return common.OK
 }
 
-func add_task(ctx *Command_Context) int {
-	if len(ctx.Args) == 0 {
-		bone.Log_Error("Enter task title")
-		return common.INPUT_ERROR
-	}
-	// Purified title
-	title := ""
-	var schedule *string = nil
-	priority := -1
-	for _, arg := range ctx.Args {
-		if date_regex.MatchString(arg) {
-			if schedule != nil {
-				bone.Log_Error("Multiple date defined")
-				return common.INPUT_ERROR
-			}
-			schedule = &arg
-			continue
-		}
-		if time_regex.MatchString(arg) {
-			if schedule == nil {
-				bone.Log_Error("Time precedes date")
-				return common.INPUT_ERROR
-			}
-			inter := *schedule + arg
-			schedule = &inter
-			continue
-		}
-
-		if arg == "p3" {
-			priority = SOMETIME_LATER_PRIORITY
-			continue
-		}
-		if arg == "p2" {
-			priority = THIS_WEEK_PRIORITY
-			continue
-		}
-		if arg == "p1" {
-			priority = TODAY_PRIORITY
-			continue
-		}
-
-		title += arg + " "
-	}
-	if priority != -1 && schedule != nil {
-		bone.Log_Error("Priority and schedule are set simultaneously")
-		return common.INPUT_ERROR
-	} else if priority == -1 {
-		// Default
-		priority = SOMETIME_LATER_PRIORITY
-	}
-	title = strings.TrimSpace(title)
-
+func add(ctx *Command_Context) int {
 	tx := db.Begin()
 	defer tx.Rollback()
-	r, er := tx.Exec(
-		"INSERT INTO task (title, created_sec, completion_priority, schedule, project_id) VALUES ($1, $2, $3, $4, $5)",
+
+	add_type := ctx.Args[0]
+
+	switch add_type {
+	case "task":
+	case "t":
+		return add_task(ctx, tx, 1)
+	case "project":
+	case "p":
+		return add_project(ctx, tx, 1)
+	}
+
+	bone.Log_Error("Unknown add type '%s'.", add_type)
+	return common.ERROR
+}
+
+func add_task(ctx *Command_Context, tx *db.Tx, start int) int {
+	title := ""
+	for _, arg := range ctx.Args[start:] {
+		title += arg + " "
+	}
+	title = strings.TrimSpace(title)
+	_, er := tx.Exec(
+		"INSERT INTO task (title, created_sec, project_id) VALUES ($1, $2, $3)",
 		title,
 		bone.Utc(),
-		priority,
-		schedule,
 		current_project_id,
 	)
 	if er != nil {
-		bone.Log_Error("During task insertion, an error occured: %s", er)
+		bone.Log_Error("During task creation, an error occured: %s", er)
 		return common.ERROR
 	}
-	_, er = r.LastInsertId()
+	return common.OK
+}
+
+func add_project(ctx *Command_Context, tx *db.Tx, start int) int {
+	_, er := tx.Exec("INSERT INTO project (title) VALUES ($1)", ctx.Args[start])
 	if er != nil {
-		bone.Log_Error("During last insert id retrieve, an error occured: %s", er)
+		bone.Log_Error("During project creation, cannot insert project with title '%s', the error is: %s", ctx.Args[0], er.Error())
+		return common.INSERT_ERROR
+	}
+
+	er = tx.Commit()
+	if er != nil {
+		return common.COMMIT_ERROR
+	}
+
+	bone.Log("Added project '%s'.", ctx.Args[0])
+
+	return common.OK
+}
+
+func complete_task_fast(ctx *Command_Context) int {
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	task_id, er := strconv.Atoi(ctx.Args[0])
+	if er != nil {
+		bone.Log_Error("Task id should be integer.")
+		return common.ERROR
+	}
+
+	_, er = tx.Exec("UPDATE task WHERE id = $1 SET last_completed_sec = $2, state = $3", task_id, bone.Utc(), COMPLETED)
+	if er != nil {
+		bone.Log_Error("During task completion, an error occured: %s", er)
 		return common.ERROR
 	}
 
@@ -440,7 +418,36 @@ func add_task(ctx *Command_Context) int {
 		return common.ERROR
 	}
 
-	fmt.Print("Created\n")
+	return common.OK
+}
+
+func add_task_fast(ctx *Command_Context) int {
+	tx := db.Begin()
+	defer tx.Rollback()
+	return add_task(ctx, tx, 0)
+}
+
+func reject_task_fast(ctx *Command_Context) int {
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	task_id, er := strconv.Atoi(ctx.Args[0])
+	if er != nil {
+		bone.Log_Error("Task id should be integer.")
+		return common.ERROR
+	}
+
+	_, er = tx.Exec("UPDATE task WHERE id = $1 SET last_rejected_sec = $2, state = $3", task_id, bone.Utc(), REJECTED)
+	if er != nil {
+		bone.Log_Error("During task rejection, an error occured: %s", er)
+		return common.ERROR
+	}
+
+	er = tx.Commit()
+	if er != nil {
+		bone.Log_Error("During commit, an error occured: %s", er)
+		return common.ERROR
+	}
 
 	return common.OK
 }
