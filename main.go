@@ -226,7 +226,7 @@ func update(ctx *Command_Context) int {
 		}
 		task, ok := hooks[hook_number-1].(*Task)
 		if !ok {
-			bone.Log_Error("Hook #%d is not a Task", hook_number)
+			bone.Log_Error("Hook #%d is not a task.", hook_number)
 			return common.HOOK_TYPE_ERROR
 		}
 		task_ids = append(task_ids, task.Id)
@@ -347,17 +347,34 @@ func add(ctx *Command_Context) int {
 
 	add_type := ctx.Args[0]
 
+	var final_msg string
+
 	switch add_type {
 	case "task":
 	case "t":
-		return add_task(ctx, tx, 1)
+		e := add_task(ctx, tx, 1)
+		if e > 0 {
+			return e
+		}
+		final_msg = "Task created."
 	case "project":
 	case "p":
-		return add_project(ctx, tx, 1)
+		e := add_project(ctx, tx, 1)
+		if e > 0 {
+			return e
+		}
+		final_msg = "Project created."
+	default:
+		bone.Log_Error("Unknown add type '%s'.", add_type)
+		return common.ERROR
 	}
 
-	bone.Log_Error("Unknown add type '%s'.", add_type)
-	return common.ERROR
+	er := tx.Commit()
+	if er != nil {
+		return common.COMMIT_ERROR
+	}
+	bone.Log(final_msg)
+	return common.OK
 }
 
 func add_task(ctx *Command_Context, tx *db.Tx, start int) int {
@@ -385,12 +402,6 @@ func add_project(ctx *Command_Context, tx *db.Tx, start int) int {
 		bone.Log_Error("During project creation, cannot insert project with title '%s', the error is: %s", ctx.Args[0], er.Error())
 		return common.INSERT_ERROR
 	}
-
-	er = tx.Commit()
-	if er != nil {
-		return common.COMMIT_ERROR
-	}
-
 	bone.Log("Added project '%s'.", ctx.Args[0])
 
 	return common.OK
@@ -400,13 +411,19 @@ func complete_task_fast(ctx *Command_Context) int {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	task_id, er := strconv.Atoi(ctx.Args[0])
+	hook, er := strconv.Atoi(ctx.Args[0])
 	if er != nil {
 		bone.Log_Error("Task id should be integer.")
 		return common.ERROR
 	}
 
-	_, er = tx.Exec("UPDATE task WHERE id = $1 SET last_completed_sec = $2, state = $3", task_id, bone.Utc(), COMPLETED)
+	task, ok := hooks[hook-1].(*Task)
+	if !ok {
+		bone.Log_Error("Hook #%d is not a task.", hook+1)
+		return common.HOOK_TYPE_ERROR
+	}
+
+	_, er = tx.Exec("UPDATE taskSET last_completed_sec = $2, state = $3 WHERE id = $1", task.Id, bone.Utc(), COMPLETED)
 	if er != nil {
 		bone.Log_Error("During task completion, an error occured: %s", er)
 		return common.ERROR
@@ -418,26 +435,43 @@ func complete_task_fast(ctx *Command_Context) int {
 		return common.ERROR
 	}
 
+	bone.Log("Completed task.")
 	return common.OK
 }
 
 func add_task_fast(ctx *Command_Context) int {
 	tx := db.Begin()
 	defer tx.Rollback()
-	return add_task(ctx, tx, 0)
+	e := add_task(ctx, tx, 0)
+	if e > 0 {
+		return e
+	}
+	er := tx.Commit()
+	if er != nil {
+		bone.Log_Error("During commit, an error occured: %s", er)
+		return common.ERROR
+	}
+	bone.Log("Task created.")
+	return common.OK
 }
 
 func reject_task_fast(ctx *Command_Context) int {
 	tx := db.Begin()
 	defer tx.Rollback()
 
-	task_id, er := strconv.Atoi(ctx.Args[0])
+	hook, er := strconv.Atoi(ctx.Args[0])
 	if er != nil {
 		bone.Log_Error("Task id should be integer.")
 		return common.ERROR
 	}
 
-	_, er = tx.Exec("UPDATE task WHERE id = $1 SET last_rejected_sec = $2, state = $3", task_id, bone.Utc(), REJECTED)
+	task, ok := hooks[hook-1].(*Task)
+	if !ok {
+		bone.Log_Error("Hook #%d is not a task.", hook+1)
+		return common.HOOK_TYPE_ERROR
+	}
+
+	_, er = tx.Exec("UPDATE task SET last_rejected_sec = $2, state = $3 WHERE id = $1", task.Id, bone.Utc(), REJECTED)
 	if er != nil {
 		bone.Log_Error("During task rejection, an error occured: %s", er)
 		return common.ERROR
@@ -449,6 +483,7 @@ func reject_task_fast(ctx *Command_Context) int {
 		return common.ERROR
 	}
 
+	bone.Log("Rejected task.")
 	return common.OK
 }
 
