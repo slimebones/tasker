@@ -63,9 +63,10 @@ var COMMANDS = map[string]handler{
 	"s": show,
 	"a": add,
 	"u": update,
-	"w": switch_,
+	"w": sw,
 	"i": info,
 	"f": find,
+	"m": move,
 }
 
 type Command_Context struct {
@@ -129,7 +130,7 @@ func info(ctx *Command_Context) int {
 //
 // Args:
 //   - 1 (default="main"): Name of the project to switch to.
-func switch_(ctx *Command_Context) int {
+func sw(ctx *Command_Context) int {
 	project_name := "main"
 	if len(ctx.Args) > 0 {
 		project_name = ctx.Args[0]
@@ -151,6 +152,51 @@ func switch_(ctx *Command_Context) int {
 	current_project_id = project.Id
 	current_project_name = project_name
 
+	return common.OK
+}
+
+// Moves task to another project.
+func move(ctx *Command_Context) int {
+	if len(ctx.Args) != 2 {
+		bone.Log_Error("Expected task hook number and destination project name.")
+		return common.ERROR
+	}
+
+	tx := db.Begin()
+	defer tx.Rollback()
+
+	hook, er := strconv.Atoi(ctx.Args[0])
+	if er != nil {
+		bone.Log_Error("Task id should be integer.")
+		return common.ERROR
+	}
+
+	task, ok := hooks[hook-1].(*Task)
+	if !ok {
+		bone.Log_Error("Hook #%d is not a task.", hook+1)
+		return common.HOOK_TYPE_ERROR
+	}
+
+	project_name := ctx.Args[1]
+	var project Project
+	er = tx.Get(&project, "SELECT * FROM project WHERE title = $1", project_name)
+	if er != nil {
+		bone.Log_Error("During project '%s' search, an error occurred: %s", project_name, er)
+		return common.ERROR
+	}
+
+	_, er = tx.Exec("UPDATE task SET project_id = $1 WHERE id = $2", project.Id, task.Id)
+	if er != nil {
+		bone.Log_Error("During task move, an error occurred: %s", er)
+		return common.ERROR
+	}
+
+	er = tx.Commit()
+	if er != nil {
+		return common.COMMIT_ERROR
+	}
+
+	bone.Log("Moved task to project '%s'.", project_name)
 	return common.OK
 }
 
