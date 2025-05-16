@@ -402,8 +402,6 @@ func add_project(ctx *Command_Context, tx *db.Tx, start int) int {
 		bone.Log_Error("During project creation, cannot insert project with title '%s', the error is: %s", ctx.Args[0], er.Error())
 		return common.INSERT_ERROR
 	}
-	bone.Log("Added project '%s'.", ctx.Args[0])
-
 	return common.OK
 }
 
@@ -423,7 +421,7 @@ func complete_task_fast(ctx *Command_Context) int {
 		return common.HOOK_TYPE_ERROR
 	}
 
-	_, er = tx.Exec("UPDATE taskSET last_completed_sec = $2, state = $3 WHERE id = $1", task.Id, bone.Utc(), COMPLETED)
+	_, er = tx.Exec("UPDATE task SET last_completed_sec = $2, state = $3 WHERE id = $1", task.Id, bone.Utc(), COMPLETED)
 	if er != nil {
 		bone.Log_Error("During task completion, an error occured: %s", er)
 		return common.ERROR
@@ -504,7 +502,7 @@ func reject_task_fast(ctx *Command_Context) int {
 //   - `-ocompleted`: order by completion time, integrates with `-reverse`
 //   - `-orejected`: order by rejection time, integrates with `-reverse`
 func show(ctx *Command_Context) int {
-	project_show := ctx.Has_Arg("-p")
+	project_show := len(ctx.Args) > 0 && (ctx.Args[0] == "p" || ctx.Args[0] == "project")
 
 	query := ""
 	where_query := ""
